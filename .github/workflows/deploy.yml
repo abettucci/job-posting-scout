@@ -1,0 +1,126 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  TF_VAR_aws_region:              ${{ secrets.AWS_REGION }}
+  TF_VAR_aws_account_id:          ${{ secrets.AWS_ACCOUNT_ID }}
+  TF_VAR_frontend_url:            ${{ secrets.FRONTEND_URL }}
+  TF_VAR_telegram_webhook_secret: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+  # App secrets (API keys, passwords) live in Secrets Manager — not here
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: api
+            dockerfile: aws/lambdas/Dockerfile.api
+          - image: scraper
+            dockerfile: aws/lambdas/Dockerfile.scraper
+          - image: telegram-bot
+            dockerfile: aws/lambdas/Dockerfile.telegram_bot
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Create ECR repo if not exists
+        run: |
+          aws ecr create-repository \
+            --repository-name linkedin-job-scout-${{ matrix.image }} \
+            --region ${{ secrets.AWS_REGION }} 2>/dev/null || true
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        env:
+          REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+        run: |
+          REPO="$REGISTRY/linkedin-job-scout-${{ matrix.image }}"
+          docker build \
+            -f ${{ matrix.dockerfile }} \
+            -t $REPO:${{ github.sha }} \
+            -t $REPO:latest \
+            aws/lambdas/
+          docker push $REPO:${{ github.sha }}
+          docker push $REPO:latest
+
+  terraform-deploy:
+    needs: [build-and-push]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Import existing resources
+        env:
+          TF_VAR_image_tag: ${{ github.sha }}
+        run: |
+          P="linkedin-job-scout-prod"
+
+          terraform import aws_dynamodb_table.users         $P-users         2>/dev/null || true
+          terraform import aws_dynamodb_table.searches      $P-searches      2>/dev/null || true
+          terraform import aws_dynamodb_table.profiles      $P-profiles      2>/dev/null || true
+          terraform import aws_dynamodb_table.jobs          $P-jobs          2>/dev/null || true
+          terraform import aws_dynamodb_table.telegram_codes $P-telegram-codes 2>/dev/null || true
+          terraform import aws_dynamodb_table.interviews    $P-interviews    2>/dev/null || true
+
+          terraform import aws_iam_role.lambda_exec $P-lambda-role 2>/dev/null || true
+          terraform import aws_iam_role_policy.app_policy "$P-lambda-role:app-policy" 2>/dev/null || true
+
+          terraform import aws_lambda_function.api         $P-api         2>/dev/null || true
+          terraform import aws_lambda_function.scraper     $P-scraper     2>/dev/null || true
+          terraform import aws_lambda_function.telegram_bot $P-telegram-bot 2>/dev/null || true
+
+          API_ID=$(aws apigatewayv2 get-apis \
+            --query "Items[?Name=='$P-api'].ApiId" \
+            --output text 2>/dev/null || true)
+          if [ -n "$API_ID" ] && [ "$API_ID" != "None" ]; then
+            terraform import aws_apigatewayv2_api.main   $API_ID          2>/dev/null || true
+            terraform import aws_apigatewayv2_stage.default "$API_ID/\$default" 2>/dev/null || true
+          fi
+
+          terraform import aws_cloudwatch_log_group.api       /aws/lambda/$P-api         2>/dev/null || true
+          terraform import aws_cloudwatch_log_group.scraper    /aws/lambda/$P-scraper     2>/dev/null || true
+          terraform import aws_cloudwatch_log_group.telegram_bot /aws/lambda/$P-telegram-bot 2>/dev/null || true
+
+          terraform import aws_cloudwatch_event_rule.scraper_schedule $P-scraper-schedule 2>/dev/null || true
+
+      - name: Terraform Apply
+        env:
+          TF_VAR_image_tag: ${{ github.sha }}
+        run: terraform apply -auto-approve
+
+      - name: Set Telegram Webhook
+        run: |
+          WEBHOOK_URL=$(terraform output -raw telegram_webhook_url)
+          curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/setWebhook" \
+            -d "url=$WEBHOOK_URL" \
+            -d "secret_token=${{ secrets.TELEGRAM_WEBHOOK_SECRET }}" | python3 -m json.tool

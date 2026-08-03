@@ -1,0 +1,33 @@
+FROM public.ecr.aws/lambda/python:3.11
+
+ENV PIP_TRUSTED_HOST="pypi.org files.pythonhosted.org"
+
+# System dependencies required by Chromium on Amazon Linux 2023
+RUN dnf install -y \
+    at-spi2-atk \
+    atk \
+    cups-libs \
+    gtk3 \
+    libXcomposite \
+    libXcursor \
+    libXdamage \
+    libXext \
+    libXi \
+    libXrandr \
+    libXScrnSaver \
+    libXtst \
+    pango \
+    alsa-lib \
+    --skip-broken && \
+    dnf clean all
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+COPY scraper/requirements.txt .
+RUN pip install -r requirements.txt --no-cache-dir
+RUN playwright install chromium
+
+COPY shared/ ${LAMBDA_TASK_ROOT}/shared/
+COPY scraper/ ${LAMBDA_TASK_ROOT}/
+
+CMD ["handler.lambda_handler"]
