@@ -94,11 +94,35 @@ async def main():
 
         # Log in
         logger.info("Logging in to LinkedIn...")
-        await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
+        await page.goto("https://www.linkedin.com/login", wait_until="networkidle", timeout=30_000)
+
+        # Wait for the form — if it doesn't appear, take a screenshot and pause
+        try:
+            await page.wait_for_selector("#username", timeout=15_000)
+        except Exception:
+            await page.screenshot(path="linkedin_login_error.png")
+            print(f"\n⚠️  Login form not found. Current URL: {page.url}")
+            print("   Screenshot saved to linkedin_login_error.png")
+            print("   LinkedIn may be showing a CAPTCHA or challenge page.")
+            print("   Complete it manually in the browser window, then press Enter...")
+            input()
+
         await page.fill("#username", cfg["linkedin_email"])
         await page.fill("#password", cfg["linkedin_password"])
         await page.click('button[type="submit"]')
-        await page.wait_for_load_state("networkidle", timeout=20_000)
+
+        # Wait for redirect to feed or checkpoint
+        try:
+            await page.wait_for_url(lambda url: "feed" in url or "mynetwork" in url or "checkpoint" in url or "challenge" in url, timeout=20_000)
+        except Exception:
+            pass
+
+        if "checkpoint" in page.url or "challenge" in page.url:
+            await page.screenshot(path="linkedin_challenge.png")
+            print(f"\n⚠️  LinkedIn is asking for verification. URL: {page.url}")
+            print("   Screenshot saved to linkedin_challenge.png")
+            print("   Complete the verification in the browser window, then press Enter...")
+            input()
 
         if "feed" not in page.url and "mynetwork" not in page.url:
             print(f"\n⚠️  Login might have failed — current URL: {page.url}")
