@@ -36,8 +36,14 @@ resource "aws_dynamodb_table" "users" {
   name         = "${local.prefix}-users"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
-  attribute { name = "user_id"; type = "S" }
-  attribute { name = "email";   type = "S" }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "email"
+    type = "S"
+  }
   global_secondary_index {
     name            = "email-index"
     hash_key        = "email"
@@ -50,15 +56,24 @@ resource "aws_dynamodb_table" "searches" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
   range_key    = "search_id"
-  attribute { name = "user_id";   type = "S" }
-  attribute { name = "search_id"; type = "S" }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "search_id"
+    type = "S"
+  }
 }
 
 resource "aws_dynamodb_table" "profiles" {
   name         = "${local.prefix}-profiles"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
-  attribute { name = "user_id"; type = "S" }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
 }
 
 resource "aws_dynamodb_table" "jobs" {
@@ -66,17 +81,32 @@ resource "aws_dynamodb_table" "jobs" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
   range_key    = "job_id"
-  attribute { name = "user_id"; type = "S" }
-  attribute { name = "job_id";  type = "S" }
-  ttl { attribute_name = "ttl"; enabled = true }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "job_id"
+    type = "S"
+  }
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
 }
 
 resource "aws_dynamodb_table" "telegram_codes" {
   name         = "${local.prefix}-telegram-codes"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "code"
-  attribute { name = "code"; type = "S" }
-  ttl { attribute_name = "ttl"; enabled = true }
+  attribute {
+    name = "code"
+    type = "S"
+  }
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
 }
 
 resource "aws_dynamodb_table" "interviews" {
@@ -84,8 +114,14 @@ resource "aws_dynamodb_table" "interviews" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
   range_key    = "interview_id"
-  attribute { name = "user_id";      type = "S" }
-  attribute { name = "interview_id"; type = "S" }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "interview_id"
+    type = "S"
+  }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
