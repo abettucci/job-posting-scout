@@ -1,9 +1,9 @@
-FROM public.ecr.aws/lambda/python:3.11
+FROM public.ecr.aws/lambda/python:3.12
 
 ENV PIP_TRUSTED_HOST="pypi.org files.pythonhosted.org"
 
-# System dependencies required by Chromium on Amazon Linux 2 (python:3.11 base)
-RUN yum install -y \
+# AL2023 (python:3.12 base) has GLIBC 2.34 which satisfies Playwright's Node binary requirement
+RUN dnf install -y \
     at-spi2-atk \
     atk \
     cups-libs \
@@ -16,10 +16,11 @@ RUN yum install -y \
     libXrandr \
     libXScrnSaver \
     libXtst \
+    mesa-libgbm \
+    nss \
     pango \
     alsa-lib \
-    --skip-broken && \
-    yum clean all
+    && dnf clean all
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
