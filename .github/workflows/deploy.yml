@@ -159,6 +159,11 @@ jobs:
       - name: Set Telegram Webhook
         run: |
           WEBHOOK_URL=$(terraform output -raw telegram_webhook_url)
-          curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/setWebhook" \
+          BOT_TOKEN=$(aws secretsmanager get-secret-value \
+            --secret-id "linkedin-job-scout/prod" \
+            --region ${{ secrets.AWS_REGION }} \
+            --query SecretString --output text \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['TELEGRAM_BOT_TOKEN'])")
+          curl -s "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
             -d "url=$WEBHOOK_URL" \
             -d "secret_token=${{ secrets.TELEGRAM_WEBHOOK_SECRET }}" | python3 -m json.tool
