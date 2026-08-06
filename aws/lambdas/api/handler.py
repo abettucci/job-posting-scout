@@ -5,8 +5,11 @@ import sys
 from pathlib import Path
 
 _HERE = str(Path(__file__).resolve().parent)
-_SHARED = str(Path(__file__).resolve().parent.parent / "shared")
-for p in [_HERE, _SHARED]:
+# In Docker: handler.py and shared/ are siblings under LAMBDA_TASK_ROOT
+# In local dev: handler.py is under api/ and shared/ is one level up
+_SHARED_LAMBDA = str(Path(__file__).resolve().parent / "shared")
+_SHARED_LOCAL = str(Path(__file__).resolve().parent.parent / "shared")
+for p in [_HERE, _SHARED_LAMBDA, _SHARED_LOCAL]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
