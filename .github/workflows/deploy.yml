@@ -107,11 +107,16 @@ jobs:
             terraform import aws_apigatewayv2_stage.default "$API_ID/\$default" 2>/dev/null || true
           fi
 
-          terraform import aws_cloudwatch_log_group.api       /aws/lambda/$P-api         2>/dev/null || true
+          terraform import aws_cloudwatch_log_group.api         /aws/lambda/$P-api         2>/dev/null || true
           terraform import aws_cloudwatch_log_group.scraper    /aws/lambda/$P-scraper     2>/dev/null || true
           terraform import aws_cloudwatch_log_group.telegram_bot /aws/lambda/$P-telegram-bot 2>/dev/null || true
 
-          terraform import aws_cloudwatch_event_rule.scraper_schedule $P-scraper-schedule 2>/dev/null || true
+          terraform import aws_cloudwatch_event_rule.scraper_schedule $P-scraper-schedule                    2>/dev/null || true
+          terraform import aws_cloudwatch_event_target.scraper        "$P-scraper-schedule/scraper-lambda"   2>/dev/null || true
+
+          terraform import aws_lambda_permission.api_gw_api          "$P-api/AllowAPIGatewayInvokeApi"          2>/dev/null || true
+          terraform import aws_lambda_permission.api_gw_bot          "$P-telegram-bot/AllowAPIGatewayInvokeBot" 2>/dev/null || true
+          terraform import aws_lambda_permission.eventbridge_scraper "$P-scraper/AllowEventBridgeInvokeScraper" 2>/dev/null || true
 
       - name: Terraform Apply
         env:

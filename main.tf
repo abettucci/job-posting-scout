@@ -318,8 +318,9 @@ resource "aws_cloudwatch_event_rule" "scraper_schedule" {
 }
 
 resource "aws_cloudwatch_event_target" "scraper" {
-  rule = aws_cloudwatch_event_rule.scraper_schedule.name
-  arn  = aws_lambda_function.scraper.arn
+  rule      = aws_cloudwatch_event_rule.scraper_schedule.name
+  target_id = "scraper-lambda"
+  arn       = aws_lambda_function.scraper.arn
 }
 
 resource "aws_lambda_permission" "eventbridge_scraper" {
