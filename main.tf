@@ -21,7 +21,7 @@ variable "frontend_url"            {}
 # Webhook validation token — needed as env var on every bot request, low-risk as env var
 variable "telegram_webhook_secret" { sensitive = true }
 # App secrets (API keys, passwords) live in Secrets Manager, not here
-variable "secrets_name"            { default = "linkedin-job-scout/prod/secrets" }
+variable "secrets_name"            { default = "linkedin-job-scout/prod" }
 
 locals {
   prefix   = "${var.project_name}-${var.environment}"
