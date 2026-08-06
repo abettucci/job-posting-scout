@@ -44,9 +44,10 @@ async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List
         await page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
         await _random_delay()
 
-        # Check if redirected to login
-        if "linkedin.com/login" in page.url or "linkedin.com/checkpoint" in page.url:
-            logger.warning("LinkedIn session expired — need re-authentication")
+        # Check if redirected to any auth/login page
+        _auth_patterns = ("linkedin.com/login", "linkedin.com/checkpoint", "linkedin.com/authwall", "linkedin.com/uas/login", "linkedin.com/signup")
+        if any(p in page.url for p in _auth_patterns):
+            logger.warning(f"LinkedIn session expired (redirected to {page.url}) — need re-authentication")
             return []
 
         # Wait for job cards
@@ -110,7 +111,12 @@ async def login(page: Page, email: str, password: str) -> bool:
         await page.fill("#password", password)
         await _random_delay(500, 1000)
         await page.click('button[type="submit"]')
-        await page.wait_for_url("https://www.linkedin.com/feed/**", timeout=15_000)
+        await page.wait_for_load_state("domcontentloaded", timeout=15_000)
+        _auth_patterns = ("linkedin.com/login", "linkedin.com/authwall", "linkedin.com/uas/login")
+        if any(p in page.url for p in _auth_patterns):
+            logger.error(f"Login failed — still on auth page: {page.url}")
+            return False
+        logger.info(f"Login succeeded, landed on: {page.url}")
         return True
     except Exception as e:
         logger.error(f"Login failed: {e}")
@@ -183,8 +189,9 @@ async def run_scraper(
 
         # Check session validity
         await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=20_000)
-        if "linkedin.com/login" in page.url or "linkedin.com/checkpoint" in page.url:
-            logger.info("Session expired — re-authenticating")
+        _auth_patterns = ("linkedin.com/login", "linkedin.com/checkpoint", "linkedin.com/authwall", "linkedin.com/uas/login", "linkedin.com/signup")
+        if any(p in page.url for p in _auth_patterns) or "feed" not in page.url:
+            logger.info(f"Session not valid (url={page.url}) — re-authenticating")
             ok = await login(page, email, password)
             if not ok:
                 logger.error("Authentication failed — aborting scraper")
