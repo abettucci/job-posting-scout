@@ -2,8 +2,8 @@ FROM public.ecr.aws/lambda/python:3.11
 
 ENV PIP_TRUSTED_HOST="pypi.org files.pythonhosted.org"
 
-# System dependencies required by Chromium on Amazon Linux 2023
-RUN dnf install -y \
+# System dependencies required by Chromium on Amazon Linux 2 (python:3.11 base)
+RUN yum install -y \
     at-spi2-atk \
     atk \
     cups-libs \
@@ -19,7 +19,7 @@ RUN dnf install -y \
     pango \
     alsa-lib \
     --skip-broken && \
-    dnf clean all
+    yum clean all
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
