@@ -85,38 +85,71 @@ jobs:
         run: |
           P="linkedin-job-scout-prod"
 
-          terraform import aws_dynamodb_table.users         $P-users         2>/dev/null || true
-          terraform import aws_dynamodb_table.searches      $P-searches      2>/dev/null || true
-          terraform import aws_dynamodb_table.profiles      $P-profiles      2>/dev/null || true
-          terraform import aws_dynamodb_table.jobs          $P-jobs          2>/dev/null || true
+          # DynamoDB
+          terraform import aws_dynamodb_table.users          $P-users          2>/dev/null || true
+          terraform import aws_dynamodb_table.searches       $P-searches       2>/dev/null || true
+          terraform import aws_dynamodb_table.profiles       $P-profiles       2>/dev/null || true
+          terraform import aws_dynamodb_table.jobs           $P-jobs           2>/dev/null || true
           terraform import aws_dynamodb_table.telegram_codes $P-telegram-codes 2>/dev/null || true
-          terraform import aws_dynamodb_table.interviews    $P-interviews    2>/dev/null || true
+          terraform import aws_dynamodb_table.interviews     $P-interviews     2>/dev/null || true
 
-          terraform import aws_iam_role.lambda_exec $P-lambda-role 2>/dev/null || true
+          # IAM
+          terraform import aws_iam_role.lambda_exec       $P-lambda-role              2>/dev/null || true
           terraform import aws_iam_role_policy.app_policy "$P-lambda-role:app-policy" 2>/dev/null || true
 
-          terraform import aws_lambda_function.api         $P-api         2>/dev/null || true
-          terraform import aws_lambda_function.scraper     $P-scraper     2>/dev/null || true
+          # Lambda functions
+          terraform import aws_lambda_function.api          $P-api          2>/dev/null || true
+          terraform import aws_lambda_function.scraper      $P-scraper      2>/dev/null || true
           terraform import aws_lambda_function.telegram_bot $P-telegram-bot 2>/dev/null || true
 
-          API_ID=$(aws apigatewayv2 get-apis \
-            --query "Items[?Name=='$P-api'].ApiId" \
-            --output text 2>/dev/null || true)
-          if [ -n "$API_ID" ] && [ "$API_ID" != "None" ]; then
-            terraform import aws_apigatewayv2_api.main   $API_ID          2>/dev/null || true
-            terraform import aws_apigatewayv2_stage.default "$API_ID/\$default" 2>/dev/null || true
-          fi
-
-          terraform import aws_cloudwatch_log_group.api         /aws/lambda/$P-api         2>/dev/null || true
-          terraform import aws_cloudwatch_log_group.scraper    /aws/lambda/$P-scraper     2>/dev/null || true
-          terraform import aws_cloudwatch_log_group.telegram_bot /aws/lambda/$P-telegram-bot 2>/dev/null || true
-
-          terraform import aws_cloudwatch_event_rule.scraper_schedule $P-scraper-schedule                    2>/dev/null || true
-          terraform import aws_cloudwatch_event_target.scraper        "$P-scraper-schedule/scraper-lambda"   2>/dev/null || true
-
+          # Lambda permissions
           terraform import aws_lambda_permission.api_gw_api          "$P-api/AllowAPIGatewayInvokeApi"          2>/dev/null || true
           terraform import aws_lambda_permission.api_gw_bot          "$P-telegram-bot/AllowAPIGatewayInvokeBot" 2>/dev/null || true
           terraform import aws_lambda_permission.eventbridge_scraper "$P-scraper/AllowEventBridgeInvokeScraper" 2>/dev/null || true
+
+          # API Gateway — look up IDs dynamically
+          API_ID=$(aws apigatewayv2 get-apis \
+            --query "Items[?Name=='$P-api'].ApiId" --output text 2>/dev/null)
+          if [ -n "$API_ID" ] && [ "$API_ID" != "None" ]; then
+            terraform import aws_apigatewayv2_api.main          $API_ID            2>/dev/null || true
+            terraform import aws_apigatewayv2_stage.default     "$API_ID/\$default" 2>/dev/null || true
+
+            # Integrations
+            API_INT=$(aws apigatewayv2 get-integrations --api-id $API_ID \
+              --query "Items[?contains(IntegrationUri,'-api:')].IntegrationId" --output text 2>/dev/null)
+            BOT_INT=$(aws apigatewayv2 get-integrations --api-id $API_ID \
+              --query "Items[?contains(IntegrationUri,'telegram-bot:')].IntegrationId" --output text 2>/dev/null)
+            [ -n "$API_INT" ] && [ "$API_INT" != "None" ] && \
+              terraform import aws_apigatewayv2_integration.api          "$API_ID/$API_INT" 2>/dev/null || true
+            [ -n "$BOT_INT" ] && [ "$BOT_INT" != "None" ] && \
+              terraform import aws_apigatewayv2_integration.telegram_bot "$API_ID/$BOT_INT" 2>/dev/null || true
+
+            # Routes
+            PROXY_ROUTE=$(aws apigatewayv2 get-routes --api-id $API_ID \
+              --query "Items[?RouteKey=='ANY /{proxy+}'].RouteId" --output text 2>/dev/null)
+            WEBHOOK_ROUTE=$(aws apigatewayv2 get-routes --api-id $API_ID \
+              --query "Items[?RouteKey=='POST /webhook/telegram'].RouteId" --output text 2>/dev/null)
+            [ -n "$PROXY_ROUTE" ] && [ "$PROXY_ROUTE" != "None" ] && \
+              terraform import aws_apigatewayv2_route.api_proxy        "$API_ID/$PROXY_ROUTE"   2>/dev/null || true
+            [ -n "$WEBHOOK_ROUTE" ] && [ "$WEBHOOK_ROUTE" != "None" ] && \
+              terraform import aws_apigatewayv2_route.telegram_webhook "$API_ID/$WEBHOOK_ROUTE" 2>/dev/null || true
+          fi
+
+          # CloudWatch Log Groups
+          terraform import aws_cloudwatch_log_group.api          /aws/lambda/$P-api          2>/dev/null || true
+          terraform import aws_cloudwatch_log_group.scraper      /aws/lambda/$P-scraper      2>/dev/null || true
+          terraform import aws_cloudwatch_log_group.telegram_bot /aws/lambda/$P-telegram-bot 2>/dev/null || true
+
+          # EventBridge — import rule, then find existing target and reconcile
+          terraform import aws_cloudwatch_event_rule.scraper_schedule $P-scraper-schedule 2>/dev/null || true
+          EXISTING_TGT=$(aws events list-targets-by-rule --rule "$P-scraper-schedule" \
+            --query 'Targets[0].Id' --output text 2>/dev/null || true)
+          if [ "$EXISTING_TGT" = "scraper-lambda" ]; then
+            terraform import aws_cloudwatch_event_target.scraper "$P-scraper-schedule/scraper-lambda" 2>/dev/null || true
+          elif [ -n "$EXISTING_TGT" ] && [ "$EXISTING_TGT" != "None" ]; then
+            # Wrong target_id — remove it so Terraform recreates with correct id
+            aws events remove-targets --rule "$P-scraper-schedule" --ids "$EXISTING_TGT" 2>/dev/null || true
+          fi
 
       - name: Terraform Apply
         env:
