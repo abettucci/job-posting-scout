@@ -16,6 +16,8 @@ export default function DashboardPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [fetching, setFetching] = useState(true);
+  const [runningScaper, setRunningScaper] = useState(false);
+  const [scraperMsg, setScraperMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/");
@@ -44,6 +46,19 @@ export default function DashboardPage() {
     setSearches((prev) => prev.filter((s) => s.search_id !== id));
   };
 
+  const handleRunScraper = async () => {
+    setRunningScaper(true);
+    setScraperMsg(null);
+    try {
+      await api.runScraper();
+      setScraperMsg("Scraper triggered. Results will arrive via Telegram in ~5 min.");
+    } catch (e: unknown) {
+      setScraperMsg(`Error: ${e instanceof Error ? e.message : "unknown error"}`);
+    } finally {
+      setRunningScaper(false);
+    }
+  };
+
   if (loading || !user) return null;
 
   const activeCount = searches.filter((s) => s.active).length;
@@ -65,6 +80,22 @@ export default function DashboardPage() {
               <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
             </div>
           ))}
+        </div>
+
+        {/* Manual scraper trigger */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRunScraper}
+            disabled={runningScaper}
+            className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {runningScaper ? "Triggering…" : "Run Scraper Now"}
+          </button>
+          {scraperMsg && (
+            <p className={`text-xs ${scraperMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
+              {scraperMsg}
+            </p>
+          )}
         </div>
 
         {/* Searches */}

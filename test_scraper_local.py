@@ -7,6 +7,9 @@ Usage:
   playwright install chromium
   python ../../test_scraper_local.py
 
+  # To upload your LinkedIn session cookies to AWS so Lambda can use them:
+  python ../../test_scraper_local.py --save-cookies
+
 Environment variables (or edit the CONFIG block below):
   LINKEDIN_EMAIL, LINKEDIN_PASSWORD, ANTHROPIC_API_KEY
   LINKEDIN_SEARCH_URL  — a LinkedIn job search URL to scrape
@@ -14,6 +17,7 @@ Environment variables (or edit the CONFIG block below):
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import logging
@@ -54,6 +58,9 @@ CONFIG = {
     "score_threshold": 70,
     "max_jobs": 10,
     "dry_run": False,   # True = skip Claude scoring (faster, free)
+    # AWS settings for --save-cookies
+    "aws_region":       os.environ.get("AWS_REGION", "us-east-2"),
+    "cookies_secret":   "linkedin-job-scout/linkedin-cookies",
 }
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -65,17 +72,40 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _save_cookies_to_aws(cookies: list, secret_name: str, region: str):
+    import boto3
+    sm = boto3.client("secretsmanager", region_name=region)
+    value = json.dumps(cookies)
+    try:
+        sm.put_secret_value(SecretId=secret_name, SecretString=value)
+        print(f"\n✅  Saved {len(cookies)} cookies to Secrets Manager: {secret_name}")
+    except sm.exceptions.ResourceNotFoundException:
+        sm.create_secret(Name=secret_name, SecretString=value)
+        print(f"\n✅  Created secret and saved {len(cookies)} cookies: {secret_name}")
+    except Exception as e:
+        print(f"\n❌  Failed to save cookies: {e}")
+
+
 async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--save-cookies", action="store_true",
+                        help="Log in locally and upload session cookies to AWS Secrets Manager for Lambda use")
+    args = parser.parse_args()
+
     cfg = CONFIG
 
     if not cfg["linkedin_email"] or not cfg["linkedin_password"]:
         print("\n❌  Set LINKEDIN_EMAIL and LINKEDIN_PASSWORD (env vars or CONFIG block)\n")
         sys.exit(1)
 
-    print(f"\n🔍  Search URL: {cfg['search_url']}")
-    print(f"👤  Profile:    {cfg['profile']['desired_role']}")
-    print(f"📊  Threshold:  {cfg['score_threshold']}/100")
-    print(f"🤖  Dry run:    {cfg['dry_run']}\n")
+    if args.save_cookies:
+        print(f"\n🍪  Mode: save cookies to AWS Secrets Manager ({cfg['cookies_secret']})")
+        print(f"🔑  LinkedIn: {cfg['linkedin_email']}\n")
+    else:
+        print(f"\n🔍  Search URL: {cfg['search_url']}")
+        print(f"👤  Profile:    {cfg['profile']['desired_role']}")
+        print(f"📊  Threshold:  {cfg['score_threshold']}/100")
+        print(f"🤖  Dry run:    {cfg['dry_run']}\n")
 
     # ── 1. Scrape ─────────────────────────────────────────────────────────────
     from linkedin import scrape_search
@@ -94,7 +124,7 @@ async def main():
 
         # Log in
         logger.info("Logging in to LinkedIn...")
-        await page.goto("https://www.linkedin.com/login", wait_until="networkidle", timeout=30_000)
+        await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30_000)
 
         # Wait for the form — if it doesn't appear, take a screenshot and pause
         try:
@@ -128,6 +158,14 @@ async def main():
             print(f"\n⚠️  Login might have failed — current URL: {page.url}")
             print("   Check the browser window. Press Enter to continue anyway...")
             input()
+
+        # If --save-cookies: export and upload to AWS, then exit
+        if args.save_cookies:
+            cookies = await ctx.cookies()
+            await browser.close()
+            _save_cookies_to_aws(cookies, cfg["cookies_secret"], cfg["aws_region"])
+            print("   Lambda will use these cookies on the next scraper run (no login needed).\n")
+            return
 
         logger.info(f"Logged in. Scraping up to {cfg['max_jobs']} jobs...")
         jobs = await scrape_search(page, cfg["search_url"], max_jobs=cfg["max_jobs"])

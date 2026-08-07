@@ -104,23 +104,56 @@ async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List
 
 async def login(page: Page, email: str, password: str) -> bool:
     """Perform LinkedIn login and return True on success."""
-    try:
-        await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
-        await page.fill("#username", email)
-        await _random_delay(500, 1200)
-        await page.fill("#password", password)
-        await _random_delay(500, 1000)
-        await page.click('button[type="submit"]')
-        await page.wait_for_load_state("domcontentloaded", timeout=15_000)
-        _auth_patterns = ("linkedin.com/login", "linkedin.com/authwall", "linkedin.com/uas/login")
-        if any(p in page.url for p in _auth_patterns):
-            logger.error(f"Login failed — still on auth page: {page.url}")
-            return False
-        logger.info(f"Login succeeded, landed on: {page.url}")
-        return True
-    except Exception as e:
-        logger.error(f"Login failed: {e}")
-        return False
+    _login_urls = [
+        "https://www.linkedin.com/login",
+        "https://www.linkedin.com/uas/login",
+    ]
+    # Selectors LinkedIn uses for the username field (may vary by region/A-B test)
+    _username_selectors = ["#username", "input[name='session_key']", "input[autocomplete='username']"]
+
+    for login_url in _login_urls:
+        try:
+            await page.goto(login_url, wait_until="domcontentloaded", timeout=30_000)
+            logger.info(f"Login page loaded: {page.url}")
+
+            # Find whichever username selector is present
+            username_sel = None
+            for sel in _username_selectors:
+                try:
+                    await page.wait_for_selector(sel, timeout=8_000)
+                    username_sel = sel
+                    break
+                except Exception:
+                    continue
+
+            if not username_sel:
+                logger.warning(f"No username selector found on {page.url} — trying next URL")
+                continue
+
+            await page.fill(username_sel, email)
+            await _random_delay(500, 1200)
+
+            password_sel = "#password" if username_sel == "#username" else "input[name='session_password']"
+            try:
+                await page.wait_for_selector(password_sel, timeout=5_000)
+            except Exception:
+                password_sel = "input[type='password']"
+            await page.fill(password_sel, password)
+            await _random_delay(500, 1000)
+            await page.click('button[type="submit"]')
+            await page.wait_for_load_state("domcontentloaded", timeout=20_000)
+
+            _auth_patterns = ("linkedin.com/login", "linkedin.com/authwall", "linkedin.com/uas/login")
+            if any(p in page.url for p in _auth_patterns):
+                logger.error(f"Login failed — still on auth page: {page.url}")
+                return False
+            logger.info(f"Login succeeded, landed on: {page.url}")
+            return True
+        except Exception as e:
+            logger.error(f"Login attempt via {login_url} failed: {e}")
+            continue
+
+    return False
 
 
 def _load_cookies(secret_name: str, region: str) -> Optional[List[Dict]]:

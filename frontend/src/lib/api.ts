@@ -62,6 +62,9 @@ export const api = {
   getJobs: (minScore = 0, limit = 20) =>
     req<{ items: Job[]; count: number }>(`/jobs?min_score=${minScore}&limit=${limit}`),
 
+  // Scraper
+  runScraper: () => req<{ triggered: boolean }>("/scraper/run", { method: "POST" }),
+
   // Interviews
   getInterviews: () => req<Interview[]>("/interviews"),
   createInterview: (data: Omit<Interview, "interview_id" | "user_id" | "created_at" | "updated_at">) =>

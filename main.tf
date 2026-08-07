@@ -169,6 +169,12 @@ resource "aws_iam_role_policy" "app_policy" {
         Resource = "arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:${var.project_name}/*"
       },
       {
+        # API Lambda invokes scraper Lambda asynchronously on /scraper/run
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = aws_lambda_function.scraper.arn
+      },
+      {
         Effect   = "Allow"
         Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
         Resource = "*"
@@ -190,15 +196,16 @@ resource "aws_lambda_function" "api" {
   memory_size   = 512
   environment {
     variables = {
-      ENVIRONMENT          = var.environment
-      FRONTEND_URL         = var.frontend_url
-      SECRETS_NAME         = var.secrets_name
-      USERS_TABLE          = aws_dynamodb_table.users.name
-      SEARCHES_TABLE       = aws_dynamodb_table.searches.name
-      PROFILES_TABLE       = aws_dynamodb_table.profiles.name
-      JOBS_TABLE           = aws_dynamodb_table.jobs.name
-      TELEGRAM_CODES_TABLE = aws_dynamodb_table.telegram_codes.name
-      INTERVIEWS_TABLE     = aws_dynamodb_table.interviews.name
+      ENVIRONMENT             = var.environment
+      FRONTEND_URL            = var.frontend_url
+      SECRETS_NAME            = var.secrets_name
+      SCRAPER_FUNCTION_NAME   = aws_lambda_function.scraper.function_name
+      USERS_TABLE             = aws_dynamodb_table.users.name
+      SEARCHES_TABLE          = aws_dynamodb_table.searches.name
+      PROFILES_TABLE          = aws_dynamodb_table.profiles.name
+      JOBS_TABLE              = aws_dynamodb_table.jobs.name
+      TELEGRAM_CODES_TABLE    = aws_dynamodb_table.telegram_codes.name
+      INTERVIEWS_TABLE        = aws_dynamodb_table.interviews.name
     }
   }
 }

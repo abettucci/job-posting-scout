@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -13,7 +14,8 @@ for p in [_HERE, _SHARED_LAMBDA, _SHARED_LOCAL]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from fastapi import FastAPI
+import boto3
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_config
@@ -59,6 +61,26 @@ app.include_router(interviews.make_router(_db, get_current_user))
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/scraper/run")
+def run_scraper(current_user=Depends(get_current_user)):
+    scraper_name = os.environ.get("SCRAPER_FUNCTION_NAME", "linkedin-job-scout-prod-scraper")
+    try:
+        lambda_client = boto3.client("lambda", region_name=_cfg.region)
+        response = lambda_client.invoke(
+            FunctionName=scraper_name,
+            InvocationType="Event",  # async — no wait for result
+            Payload=json.dumps({}),
+        )
+        status = response.get("StatusCode", 0)
+        if status != 202:
+            raise HTTPException(status_code=500, detail=f"Lambda invoke returned status {status}")
+        return {"triggered": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 try:
