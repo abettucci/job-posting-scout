@@ -126,38 +126,46 @@ async def main():
         logger.info("Logging in to LinkedIn...")
         await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30_000)
 
-        # Wait for the form — if it doesn't appear, take a screenshot and pause
-        try:
-            await page.wait_for_selector("#username", timeout=15_000)
-        except Exception:
-            await page.screenshot(path="linkedin_login_error.png")
-            print(f"\n⚠️  Login form not found. Current URL: {page.url}")
-            print("   Screenshot saved to linkedin_login_error.png")
-            print("   LinkedIn may be showing a CAPTCHA or challenge page.")
-            print("   Complete it manually in the browser window, then press Enter...")
-            input()
+        _logged_in_patterns = ("feed", "mynetwork", "jobs", "messaging", "notifications")
 
-        await page.fill("#username", cfg["linkedin_email"])
-        await page.fill("#password", cfg["linkedin_password"])
-        await page.click('button[type="submit"]')
+        def _is_logged_in(url: str) -> bool:
+            return any(p in url for p in _logged_in_patterns)
 
-        # Wait for redirect to feed or checkpoint
+        # Try auto-fill if the standard form is present; otherwise ask for manual login
+        form_found = False
         try:
-            await page.wait_for_url(lambda url: "feed" in url or "mynetwork" in url or "checkpoint" in url or "challenge" in url, timeout=20_000)
+            await page.wait_for_selector("#username", timeout=10_000)
+            form_found = True
         except Exception:
             pass
 
-        if "checkpoint" in page.url or "challenge" in page.url:
+        if form_found:
+            await page.fill("#username", cfg["linkedin_email"])
+            await page.fill("#password", cfg["linkedin_password"])
+            await page.click('button[type="submit"]')
+            try:
+                await page.wait_for_url(
+                    lambda url: _is_logged_in(url) or "checkpoint" in url or "challenge" in url,
+                    timeout=20_000,
+                )
+            except Exception:
+                pass
+
+        # Handle challenge/verification step (also covers the case where form was not found)
+        if "checkpoint" in page.url or "challenge" in page.url or not _is_logged_in(page.url):
             await page.screenshot(path="linkedin_challenge.png")
-            print(f"\n⚠️  LinkedIn is asking for verification. URL: {page.url}")
-            print("   Screenshot saved to linkedin_challenge.png")
-            print("   Complete the verification in the browser window, then press Enter...")
+            print(f"\n⚠️  Manual action needed. Current URL: {page.url}")
+            if not form_found:
+                print("   LinkedIn did not show the standard login form (may be a CAPTCHA or bot check).")
+                print("   Screenshot saved to linkedin_challenge.png")
+            print("   Complete the login/verification in the browser window.")
+            print("   Once you see your LinkedIn feed, press Enter here...")
             input()
 
-        if "feed" not in page.url and "mynetwork" not in page.url:
-            print(f"\n⚠️  Login might have failed — current URL: {page.url}")
-            print("   Check the browser window. Press Enter to continue anyway...")
-            input()
+        if not _is_logged_in(page.url):
+            print(f"\n❌  Login failed — current URL: {page.url}")
+            await browser.close()
+            return
 
         # If --save-cookies: export and upload to AWS, then exit
         if args.save_cookies:
