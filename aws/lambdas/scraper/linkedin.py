@@ -127,7 +127,16 @@ async def login(page: Page, email: str, password: str) -> bool:
                     continue
 
             if not username_sel:
-                logger.warning(f"No username selector found on {page.url} — trying next URL")
+                # Log page title and a snippet so we know what LinkedIn is showing
+                try:
+                    title = await page.title()
+                    html_snippet = (await page.content())[:800]
+                    logger.warning(
+                        f"No username selector found on {page.url} — "
+                        f"title={title!r} html_start={html_snippet!r}"
+                    )
+                except Exception:
+                    logger.warning(f"No username selector found on {page.url} — trying next URL")
                 continue
 
             await page.fill(username_sel, email)
