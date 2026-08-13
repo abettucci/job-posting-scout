@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import random
 from typing import Dict, List, Optional
 from urllib.parse import urlparse, parse_qs
@@ -202,16 +203,18 @@ async def run_scraper(
     all_jobs: List[Dict] = []
 
     async with async_playwright() as p:
-        browser: Browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--single-process",
-                "--disable-blink-features=AutomationControlled",
-            ],
-        )
+        _args = [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-blink-features=AutomationControlled",
+        ]
+        # --single-process is required in Lambda (seccomp prevents forking)
+        # but hurts reliability outside Lambda
+        if os.environ.get("LAMBDA_TASK_ROOT"):
+            _args.append("--single-process")
+
+        browser: Browser = await p.chromium.launch(headless=True, args=_args)
         context: BrowserContext = await browser.new_context(
             viewport={"width": 1280, "height": 800},
             user_agent=(

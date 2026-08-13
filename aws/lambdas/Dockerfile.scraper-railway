@@ -1,0 +1,13 @@
+FROM mcr.microsoft.com/playwright/python:v1.48.0-noble
+WORKDIR /app
+
+# Install Python deps (Playwright browsers are already in the base image)
+COPY scraper/requirements.txt .
+RUN pip install -r requirements.txt --no-cache-dir
+
+COPY shared/ /app/shared/
+COPY scraper/ /app/
+
+ENV PYTHONPATH=/app:/app/shared
+
+CMD ["python", "run.py"]
