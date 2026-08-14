@@ -33,7 +33,7 @@ def _get_secret(secret_name: str, region: str) -> dict:
 
 
 def get_config() -> Config:
-    region = os.environ.get("AWS_REGION", "us-east-1")
+    region = os.environ.get("AWS_REGION", "us-east-2")
     secret_name = os.environ.get("SECRETS_NAME", "")
 
     secrets = {}
