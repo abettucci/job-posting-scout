@@ -156,6 +156,26 @@ jobs:
           TF_VAR_image_tag: ${{ github.sha }}
         run: terraform apply -auto-approve
 
+      - name: Sync env vars to Railway scraper
+        continue-on-error: true
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          npm install -g @railway/cli 2>/dev/null
+          railway variables set \
+            AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
+            AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+            AWS_DEFAULT_REGION="${{ secrets.AWS_REGION }}" \
+            ENVIRONMENT="prod" \
+            SECRETS_NAME="linkedin-job-scout/prod" \
+            USERS_TABLE="linkedin-job-scout-prod-users" \
+            SEARCHES_TABLE="linkedin-job-scout-prod-searches" \
+            PROFILES_TABLE="linkedin-job-scout-prod-profiles" \
+            JOBS_TABLE="linkedin-job-scout-prod-jobs" \
+            TELEGRAM_CODES_TABLE="linkedin-job-scout-prod-telegram-codes" \
+            MAX_SCORER_CALLS_PER_RUN="150" \
+            --service scraper 2>/dev/null || echo "Railway sync skipped (service not found)"
+
       - name: Set Telegram Webhook
         run: |
           WEBHOOK_URL=$(terraform output -raw telegram_webhook_url)
