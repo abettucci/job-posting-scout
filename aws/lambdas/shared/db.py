@@ -38,6 +38,7 @@ class DynamoDBClient:
         jobs_table: str,
         telegram_codes_table: str,
         interviews_table: str = "",
+        resumes_table: str = "",
         region: str = "us-east-1",
     ):
         db = boto3.resource("dynamodb", region_name=region)
@@ -47,6 +48,7 @@ class DynamoDBClient:
         self.jobs = db.Table(jobs_table)
         self.telegram_codes = db.Table(telegram_codes_table)
         self.interviews = db.Table(interviews_table) if interviews_table else None
+        self.resumes = db.Table(resumes_table) if resumes_table else None
 
     # ── Users ──────────────────────────────────────────────────────────────
 
@@ -304,4 +306,29 @@ class DynamoDBClient:
             return True
         except Exception as e:
             logger.error(f"delete_interview error: {e}")
+            return False
+
+    # ── Resumes ──────────────────────────────────────────────────────────────
+
+    def get_resume(self, user_id: str) -> Optional[Dict]:
+        if not self.resumes:
+            return None
+        try:
+            resp = self.resumes.get_item(Key={"user_id": user_id})
+            item = resp.get("Item")
+            return _from_decimal(item) if item else None
+        except Exception as e:
+            logger.error(f"get_resume error: {e}")
+            return None
+
+    def save_resume(self, user_id: str, resume_data: Dict) -> bool:
+        if not self.resumes:
+            return False
+        try:
+            self.resumes.put_item(
+                Item={"user_id": user_id, "updated_at": datetime.utcnow().isoformat(), **_to_decimal(resume_data)}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"save_resume error: {e}")
             return False

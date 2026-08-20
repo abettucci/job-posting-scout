@@ -2,6 +2,16 @@ FROM public.ecr.aws/lambda/python:3.11
 
 ENV PIP_TRUSTED_HOST="pypi.org files.pythonhosted.org"
 
+# Install Typst (single ~8MB Rust binary, used to compile .typ → PDF)
+RUN dnf install -y xz --setopt=install_weak_deps=False && \
+    curl -fsSL "https://github.com/typst/typst/releases/download/v0.12.0/typst-x86_64-unknown-linux-musl.tar.xz" \
+        -o /tmp/typst.tar.xz && \
+    tar -xJf /tmp/typst.tar.xz -C /tmp && \
+    mv /tmp/typst-x86_64-unknown-linux-musl/typst /usr/local/bin/typst && \
+    chmod +x /usr/local/bin/typst && \
+    rm -rf /tmp/typst* && \
+    dnf clean all
+
 COPY api/requirements.txt .
 RUN pip install -r requirements.txt --no-cache-dir
 

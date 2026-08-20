@@ -124,6 +124,16 @@ resource "aws_dynamodb_table" "interviews" {
   }
 }
 
+resource "aws_dynamodb_table" "resumes" {
+  name         = "${local.prefix}-resumes"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # IAM
 # ─────────────────────────────────────────────────────────────────────────────
@@ -160,6 +170,7 @@ resource "aws_iam_role_policy" "app_policy" {
           aws_dynamodb_table.jobs.arn,
           aws_dynamodb_table.telegram_codes.arn,
           aws_dynamodb_table.interviews.arn,
+          aws_dynamodb_table.resumes.arn,
         ]
       },
       {
@@ -206,6 +217,7 @@ resource "aws_lambda_function" "api" {
       JOBS_TABLE              = aws_dynamodb_table.jobs.name
       TELEGRAM_CODES_TABLE    = aws_dynamodb_table.telegram_codes.name
       INTERVIEWS_TABLE        = aws_dynamodb_table.interviews.name
+      RESUMES_TABLE           = aws_dynamodb_table.resumes.name
     }
   }
 }

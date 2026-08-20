@@ -89,6 +89,12 @@ export default function JobCard({ job }: Props) {
         <span className="text-xs text-slate-500">{date}</span>
         <div className="flex items-center gap-3">
           <button
+            onClick={() => router.push(`/resume?tailor_job_id=${job.job_id}`)}
+            className="text-xs text-slate-400 hover:text-white transition-colors"
+          >
+            ✂️ Tailor CV
+          </button>
+          <button
             onClick={() => router.push(trackUrl)}
             className="text-xs text-slate-400 hover:text-white transition-colors"
           >

@@ -115,13 +115,18 @@ async def login(page: Page, email: str, password: str) -> bool:
     for login_url in _login_urls:
         try:
             await page.goto(login_url, wait_until="domcontentloaded", timeout=30_000)
+            # Wait for scripts to finish executing — LinkedIn renders the form with JS
+            try:
+                await page.wait_for_load_state("load", timeout=15_000)
+            except Exception:
+                pass
             logger.info(f"Login page loaded: {page.url}")
 
             # Find whichever username selector is present
             username_sel = None
             for sel in _username_selectors:
                 try:
-                    await page.wait_for_selector(sel, timeout=8_000)
+                    await page.wait_for_selector(sel, timeout=15_000)
                     username_sel = sel
                     break
                 except Exception:
