@@ -95,6 +95,12 @@ export default function JobCard({ job }: Props) {
             ✂️ Tailor CV
           </button>
           <button
+            onClick={() => router.push(`/resume?cover_job_id=${job.job_id}`)}
+            className="text-xs text-slate-400 hover:text-white transition-colors"
+          >
+            ✉️ Cover Letter
+          </button>
+          <button
             onClick={() => router.push(trackUrl)}
             className="text-xs text-slate-400 hover:text-white transition-colors"
           >

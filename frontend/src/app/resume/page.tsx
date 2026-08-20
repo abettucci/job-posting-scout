@@ -148,7 +148,7 @@ function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = "builder" | "tailor" | "checker";
+type Tab = "builder" | "tailor" | "cover" | "checker";
 
 export default function ResumePage() {
   const { user } = useAuth();
@@ -184,6 +184,14 @@ export default function ResumePage() {
   const [tailoredActive, setTailoredActive] = useState(false);
   const [originalResume, setOriginalResume] = useState<ResumeData | null>(null);
 
+  // Cover letter state
+  const [coverJobId, setCoverJobId] = useState<string | null>(null);
+  const [coverJobDesc, setCoverJobDesc] = useState("");
+  const [coverLetter, setCoverLetter] = useState("");
+  const [coverGenerating, setCoverGenerating] = useState(false);
+  const [coverDownloading, setCoverDownloading] = useState(false);
+  const [coverError, setCoverError] = useState("");
+
   // Load saved resume on mount
   useEffect(() => {
     api.getResume().then((saved) => {
@@ -193,12 +201,56 @@ export default function ResumePage() {
       }
     }).catch(() => {});
 
-    const jobId = new URLSearchParams(window.location.search).get("tailor_job_id");
-    if (jobId) {
-      setTailorJobId(jobId);
+    const params = new URLSearchParams(window.location.search);
+    const tailorId = params.get("tailor_job_id");
+    const coverId = params.get("cover_job_id");
+    if (tailorId) {
+      setTailorJobId(tailorId);
       setActiveTab("tailor");
+    } else if (coverId) {
+      setCoverJobId(coverId);
+      setActiveTab("cover");
     }
   }, []);
+
+  // ── Cover letter ─────────────────────────────────────────────────────────────
+
+  const handleGenerateCoverLetter = async () => {
+    if (!coverJobId && !coverJobDesc.trim()) return;
+    setCoverGenerating(true);
+    setCoverError("");
+    setCoverLetter("");
+    try {
+      const { letter } = await api.generateCoverLetter({
+        job_id: coverJobId ?? undefined,
+        job_description: coverJobId ? undefined : coverJobDesc.trim(),
+      });
+      setCoverLetter(letter);
+    } catch (e: unknown) {
+      setCoverError(e instanceof Error ? e.message : "Could not generate cover letter");
+    } finally {
+      setCoverGenerating(false);
+    }
+  };
+
+  const handleDownloadCoverLetter = async () => {
+    if (!coverLetter.trim()) return;
+    setCoverDownloading(true);
+    setCoverError("");
+    try {
+      const blob = await api.downloadCoverLetter(resume, coverLetter, true);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "cover-letter.pdf";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      setCoverError(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setCoverDownloading(false);
+    }
+  };
 
   // ── Tailor CV for a job posting ─────────────────────────────────────────────
 
@@ -334,7 +386,7 @@ export default function ResumePage() {
     <div className="max-w-3xl mx-auto px-4 py-8">
       {/* Tab switcher */}
       <div className="flex gap-1 mb-8 bg-slate-800/50 p-1 rounded-lg w-fit">
-        {(["builder", "tailor", "checker"] as Tab[]).map((t) => (
+        {(["builder", "tailor", "cover", "checker"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setActiveTab(t)}
@@ -342,7 +394,7 @@ export default function ResumePage() {
               activeTab === t ? "bg-brand text-white" : "text-slate-400 hover:text-white"
             }`}
           >
-            {t === "builder" ? "Resume Builder" : t === "tailor" ? "Tailor CV" : "Resume Checker"}
+            {t === "builder" ? "Resume Builder" : t === "tailor" ? "Tailor CV" : t === "cover" ? "Cover Letter" : "Resume Checker"}
           </button>
         ))}
       </div>
@@ -790,6 +842,75 @@ export default function ResumePage() {
           >
             {tailoring ? "Tailoring with Claude..." : "Generate tailored CV →"}
           </button>
+        </div>
+      )}
+
+      {/* ── Cover Letter ───────────────────────────────────────────────────── */}
+      {activeTab === "cover" && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-xl font-semibold mb-1">Cover letter for a job</h2>
+            <p className="text-slate-400 text-sm">
+              Claude writes a letter grounded only in your saved resume — no invented employers, projects, or
+              metrics — referencing 2-3 concrete things that map to what the job asks for.
+            </p>
+          </div>
+
+          {coverJobId ? (
+            <div className="p-3 bg-slate-800/60 border border-slate-700 rounded-lg text-sm text-slate-300 flex items-center justify-between gap-3">
+              <span>Writing for the job you selected from your job feed.</span>
+              <button
+                onClick={() => setCoverJobId(null)}
+                className="text-xs text-slate-400 hover:text-white whitespace-nowrap"
+              >
+                Paste a description instead
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <label className="block text-sm text-slate-300 font-medium">Job Description</label>
+              <textarea
+                value={coverJobDesc}
+                onChange={(e) => setCoverJobDesc(e.target.value)}
+                rows={8}
+                placeholder="Paste the full job description here..."
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
+              />
+            </div>
+          )}
+
+          {coverError && (
+            <div className="p-3 bg-red-900/40 border border-red-700 rounded text-red-300 text-sm">{coverError}</div>
+          )}
+
+          <button
+            onClick={handleGenerateCoverLetter}
+            disabled={coverGenerating || (!coverJobId && !coverJobDesc.trim())}
+            className="px-6 py-2.5 bg-brand hover:bg-brand/90 disabled:opacity-50 text-white text-sm font-medium rounded-lg w-full"
+          >
+            {coverGenerating ? "Writing with Claude..." : "Generate cover letter →"}
+          </button>
+
+          {coverLetter && (
+            <div className="space-y-3">
+              <label className="block text-sm text-slate-300 font-medium">
+                Letter body <span className="text-slate-500 font-normal">(editable)</span>
+              </label>
+              <textarea
+                value={coverLetter}
+                onChange={(e) => setCoverLetter(e.target.value)}
+                rows={12}
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-sm text-white resize-y"
+              />
+              <button
+                onClick={handleDownloadCoverLetter}
+                disabled={coverDownloading || !coverLetter.trim()}
+                className="w-full py-2.5 border border-brand text-brand hover:bg-brand/10 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+              >
+                {coverDownloading ? "Compiling..." : "Download PDF"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
