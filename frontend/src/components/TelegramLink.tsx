@@ -44,8 +44,8 @@ export default function TelegramLink() {
       <div className="card">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400" />
-          <span className="text-sm font-medium text-white">Telegram linked</span>
-          <span className="text-xs text-slate-400">chat_id: {user.telegram_chat_id}</span>
+          <span className="text-sm font-medium text-slate-900 dark:text-white">Telegram linked</span>
+          <span className="text-xs text-slate-600 dark:text-slate-400">chat_id: {user.telegram_chat_id}</span>
         </div>
       </div>
     );
@@ -53,8 +53,8 @@ export default function TelegramLink() {
 
   return (
     <div className="card space-y-3">
-      <h3 className="font-medium text-white">Link Telegram</h3>
-      <p className="text-sm text-slate-400">
+      <h3 className="font-medium text-slate-900 dark:text-white">Link Telegram</h3>
+      <p className="text-sm text-slate-600 dark:text-slate-400">
         Connect your Telegram account to receive job notifications.
       </p>
 
@@ -67,25 +67,25 @@ export default function TelegramLink() {
         </>
       ) : (
         <div className="space-y-3">
-          <div className="bg-slate-900 rounded-lg p-4 text-center">
-            <p className="text-xs text-slate-400 mb-1">Your code (expires in 10 min)</p>
+          <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4 text-center">
+            <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Your code (expires in 10 min)</p>
             <p className="text-4xl font-mono font-bold tracking-widest text-brand">{code}</p>
           </div>
-          <ol className="text-sm text-slate-300 space-y-1 list-decimal list-inside">
+          <ol className="text-sm text-slate-700 dark:text-slate-300 space-y-1 list-decimal list-inside">
             <li>
               Open Telegram and find your bot{" "}
               <span className="text-brand">@JobScoutBot</span>
             </li>
             <li>
               Send the command:{" "}
-              <code className="bg-slate-700 px-1.5 py-0.5 rounded text-xs font-mono">
+              <code className="bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs font-mono">
                 /start {code}
               </code>
             </li>
             <li>Wait — this page will update automatically once linked</li>
           </ol>
           <div className="flex items-center gap-2 text-xs text-slate-500">
-            <div className="w-2 h-2 rounded-full bg-slate-500 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-500 animate-pulse" />
             Waiting for Telegram confirmation…
           </div>
         </div>

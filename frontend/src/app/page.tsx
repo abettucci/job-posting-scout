@@ -42,18 +42,18 @@ export default function LoginPage() {
     <div className="flex items-center justify-center min-h-screen px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-white">LinkedIn Job Scout</h1>
-          <p className="text-slate-400 mt-1 text-sm">AI-powered job monitoring</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">LinkedIn Job Scout</h1>
+          <p className="text-slate-600 dark:text-slate-400 mt-1 text-sm">AI-powered job monitoring</p>
         </div>
 
         <div className="card space-y-4">
-          <div className="flex rounded-lg bg-slate-900 p-1 gap-1">
+          <div className="flex rounded-lg bg-slate-50 dark:bg-slate-900 p-1 gap-1">
             {(["login", "signup"] as const).map((m) => (
               <button
                 key={m}
                 onClick={() => setMode(m)}
                 className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  mode === m ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"
+                  mode === m ? "bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
                 {m === "login" ? "Sign In" : "Sign Up"}

@@ -32,9 +32,9 @@ export default function JobsPage() {
       <Nav />
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <h1 className="font-semibold text-white text-lg">All Jobs</h1>
+          <h1 className="font-semibold text-slate-900 dark:text-white text-lg">All Jobs</h1>
           <div className="flex items-center gap-2 text-sm">
-            <label className="text-slate-400">Min score:</label>
+            <label className="text-slate-600 dark:text-slate-400">Min score:</label>
             <div className="flex gap-1">
               {[0, 50, 70, 80, 90].map((v) => (
                 <button
@@ -43,7 +43,7 @@ export default function JobsPage() {
                   className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
                     minScore === v
                       ? "bg-brand text-white"
-                      : "bg-slate-800 text-slate-400 hover:text-white"
+                      : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
                 >
                   {v === 0 ? "All" : `${v}+`}
@@ -54,10 +54,10 @@ export default function JobsPage() {
         </div>
 
         {fetching ? (
-          <p className="text-slate-400 text-sm">Loading…</p>
+          <p className="text-slate-600 dark:text-slate-400 text-sm">Loading…</p>
         ) : jobs.length === 0 ? (
           <div className="card text-center py-12">
-            <p className="text-slate-400">No jobs found for this filter.</p>
+            <p className="text-slate-600 dark:text-slate-400">No jobs found for this filter.</p>
           </div>
         ) : (
           <div className="space-y-3">

@@ -45,7 +45,7 @@ function TagList({ label, description, items, onChange, color = "blue" }: TagLis
             <button
               type="button"
               onClick={() => onChange(items.filter((i) => i !== item))}
-              className="ml-1 hover:text-white transition-colors"
+              className="ml-1 hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               ×
             </button>
@@ -96,7 +96,7 @@ export default function ProfileEditor({ initial, onSaved }: Props) {
 
   return (
     <div className="card space-y-5">
-      <h3 className="font-medium text-white">Candidate Profile</h3>
+      <h3 className="font-medium text-slate-900 dark:text-white">Candidate Profile</h3>
 
       <TagList
         label="Must Have"
@@ -141,7 +141,7 @@ export default function ProfileEditor({ initial, onSaved }: Props) {
             onChange={(e) => set("score_threshold")(Number(e.target.value))}
             className="flex-1 accent-brand"
           />
-          <span className="text-sm font-mono w-12 text-right text-white">
+          <span className="text-sm font-mono w-12 text-right text-slate-900 dark:text-white">
             {profile.score_threshold}/100
           </span>
         </div>

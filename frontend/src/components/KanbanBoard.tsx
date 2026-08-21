@@ -19,7 +19,7 @@ const STAGE_LABELS: Record<InterviewStage, string> = {
 };
 
 const STAGE_COLORS: Record<string, string> = {
-  applied: "border-slate-500",
+  applied: "border-slate-400 dark:border-slate-500",
   phone: "border-blue-500",
   technical: "border-purple-500",
   onsite: "border-yellow-500",
@@ -64,10 +64,10 @@ export default function KanbanBoard({ interviews, onStageChange, onDelete }: Pro
             >
               {/* Column header */}
               <div className={`flex items-center justify-between mb-2 pb-1.5 border-b-2 ${STAGE_COLORS[stage]}`}>
-                <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
                   {STAGE_LABELS[stage]}
                 </span>
-                <span className="text-xs text-slate-500 bg-slate-800 rounded-full px-1.5">
+                <span className="text-xs text-slate-500 bg-white dark:bg-slate-800 rounded-full px-1.5">
                   {cards.length}
                 </span>
               </div>
@@ -75,7 +75,7 @@ export default function KanbanBoard({ interviews, onStageChange, onDelete }: Pro
               {/* Drop zone */}
               <div
                 className={`min-h-24 rounded-lg transition-colors space-y-2 p-1 ${
-                  isDragTarget ? "bg-slate-700/50 border border-dashed border-slate-500" : ""
+                  isDragTarget ? "bg-slate-200/50 dark:bg-slate-700/50 border border-dashed border-slate-400 dark:border-slate-500" : ""
                 }`}
               >
                 {cards.map((i) => (
@@ -100,7 +100,7 @@ export default function KanbanBoard({ interviews, onStageChange, onDelete }: Pro
         <div>
           <button
             onClick={() => setArchiveOpen((p) => !p)}
-            className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors mb-3"
+            className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors mb-3"
           >
             <span className={`transition-transform ${archiveOpen ? "rotate-90" : ""}`}>▶</span>
             Archive ({archiveCount})
@@ -113,11 +113,11 @@ export default function KanbanBoard({ interviews, onStageChange, onDelete }: Pro
                 if (cards.length === 0) return null;
                 return (
                   <div key={stage} className="flex-shrink-0 w-56">
-                    <div className="flex items-center justify-between mb-2 pb-1.5 border-b-2 border-slate-600">
+                    <div className="flex items-center justify-between mb-2 pb-1.5 border-b-2 border-slate-300 dark:border-slate-600">
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
                         {STAGE_LABELS[stage]}
                       </span>
-                      <span className="text-xs text-slate-600 bg-slate-800 rounded-full px-1.5">
+                      <span className="text-xs text-slate-600 bg-white dark:bg-slate-800 rounded-full px-1.5">
                         {cards.length}
                       </span>
                     </div>

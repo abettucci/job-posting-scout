@@ -30,7 +30,7 @@ function RecBadge({ rec }: { rec: Job["recommendation"] }) {
   const styles = {
     APPLY: "bg-emerald-950 text-emerald-300 border-emerald-700",
     MAYBE: "bg-yellow-950 text-yellow-300 border-yellow-700",
-    SKIP: "bg-slate-800 text-slate-400 border-slate-600",
+    SKIP: "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600",
   };
   const icons = { APPLY: "🚀", MAYBE: "🤔", SKIP: "⏭️" };
   return (
@@ -50,18 +50,18 @@ export default function JobCard({ job }: Props) {
   const trackUrl = `/interviews?job_id=${job.job_id}&company=${encodeURIComponent(job.company)}&role=${encodeURIComponent(job.title)}&score=${job.score}&url=${encodeURIComponent(job.url)}`;
 
   return (
-    <div className="card space-y-3 hover:border-slate-600 transition-colors">
+    <div className="card space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="min-w-0">
           <a
             href={job.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-semibold text-white hover:text-brand transition-colors truncate block"
+            className="font-semibold text-slate-900 dark:text-white hover:text-brand transition-colors truncate block"
           >
             {job.title}
           </a>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
             {job.company} · {job.location}
           </p>
         </div>
@@ -74,7 +74,7 @@ export default function JobCard({ job }: Props) {
       {job.reasons.length > 0 && (
         <ul className="space-y-0.5">
           {job.reasons.slice(0, 5).map((r, i) => (
-            <li key={i} className="text-sm text-slate-300">
+            <li key={i} className="text-sm text-slate-700 dark:text-slate-300">
               {r}
             </li>
           ))}
@@ -82,7 +82,7 @@ export default function JobCard({ job }: Props) {
       )}
 
       {job.summary && (
-        <p className="text-sm text-slate-400 italic leading-relaxed">{job.summary}</p>
+        <p className="text-sm text-slate-600 dark:text-slate-400 italic leading-relaxed">{job.summary}</p>
       )}
 
       <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
@@ -90,19 +90,19 @@ export default function JobCard({ job }: Props) {
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push(`/resume?tailor_job_id=${job.job_id}`)}
-            className="text-xs text-slate-400 hover:text-white transition-colors"
+            className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             ✂️ Tailor CV
           </button>
           <button
             onClick={() => router.push(`/resume?cover_job_id=${job.job_id}`)}
-            className="text-xs text-slate-400 hover:text-white transition-colors"
+            className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             ✉️ Cover Letter
           </button>
           <button
             onClick={() => router.push(trackUrl)}
-            className="text-xs text-slate-400 hover:text-white transition-colors"
+            className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             + Track Interview
           </button>

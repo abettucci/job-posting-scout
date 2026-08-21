@@ -64,8 +64,8 @@ export default function InterviewCard({ interview, onStageChange, onDelete, isDr
       {/* Header */}
       <div className="flex items-start justify-between gap-1">
         <div className="min-w-0">
-          <p className="font-semibold text-white text-sm truncate">{interview.company}</p>
-          <p className="text-xs text-slate-400 truncate">{interview.role}</p>
+          <p className="font-semibold text-slate-900 dark:text-white text-sm truncate">{interview.company}</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 truncate">{interview.role}</p>
         </div>
         {interview.job_score != null && (
           <span className={`tag border flex-shrink-0 text-xs ${
@@ -73,7 +73,7 @@ export default function InterviewCard({ interview, onStageChange, onDelete, isDr
               ? "bg-emerald-900 text-emerald-300 border-emerald-700"
               : interview.job_score >= 60
               ? "bg-yellow-900 text-yellow-300 border-yellow-700"
-              : "bg-slate-800 text-slate-400 border-slate-600"
+              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600"
           }`}>
             {interview.job_score}/100
           </span>
@@ -82,7 +82,7 @@ export default function InterviewCard({ interview, onStageChange, onDelete, isDr
 
       {/* Date + location */}
       {scheduledDate && (
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-slate-600 dark:text-slate-400">
           📅 {scheduledDate}
           {interview.location && ` · ${interview.location}`}
         </p>
@@ -99,17 +99,17 @@ export default function InterviewCard({ interview, onStageChange, onDelete, isDr
         <div className="relative">
           <button
             onClick={() => setShowStageMenu((p) => !p)}
-            className="text-xs text-slate-400 hover:text-white bg-slate-700 rounded px-2 py-0.5 transition-colors"
+            className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-slate-200 dark:bg-slate-700 rounded px-2 py-0.5 transition-colors"
           >
             → Move
           </button>
           {showStageMenu && (
-            <div className="absolute z-20 left-0 top-6 bg-slate-700 border border-slate-600 rounded-lg shadow-xl min-w-[140px]">
+            <div className="absolute z-20 left-0 top-6 bg-slate-200 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg shadow-xl min-w-[140px]">
               {ALL_STAGES.filter((s) => s !== interview.stage).map((s) => (
                 <button
                   key={s}
                   onClick={() => { onStageChange(interview.interview_id, s); setShowStageMenu(false); }}
-                  className="w-full text-left text-xs px-3 py-1.5 hover:bg-slate-600 text-slate-200 first:rounded-t-lg last:rounded-b-lg transition-colors"
+                  className="w-full text-left text-xs px-3 py-1.5 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 first:rounded-t-lg last:rounded-b-lg transition-colors"
                 >
                   {STAGE_LABELS[s]}
                 </button>
@@ -123,7 +123,7 @@ export default function InterviewCard({ interview, onStageChange, onDelete, isDr
             href={calUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-slate-400 hover:text-brand transition-colors"
+            className="text-xs text-slate-600 dark:text-slate-400 hover:text-brand transition-colors"
             title="Add to Google Calendar"
           >
             📅 Calendar
@@ -135,7 +135,7 @@ export default function InterviewCard({ interview, onStageChange, onDelete, isDr
             href={interview.job_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-slate-400 hover:text-brand transition-colors"
+            className="text-xs text-slate-600 dark:text-slate-400 hover:text-brand transition-colors"
           >
             🔗 Job
           </a>

@@ -128,6 +128,8 @@ export const api = {
     req<ResumeCheckResult>("/resume/check", { method: "POST", body: JSON.stringify(body) }),
   tailorResume: (body: { job_description?: string; job_id?: string }) =>
     req<ResumeData>("/resume/tailor", { method: "POST", body: JSON.stringify(body) }),
+  translateResume: (language: string) =>
+    req<ResumeData>("/resume/translate", { method: "POST", body: JSON.stringify({ language }) }),
   generateCoverLetter: (body: { job_description?: string; job_id?: string }) =>
     req<{ letter: string }>("/resume/cover-letter", { method: "POST", body: JSON.stringify(body) }),
   downloadCoverLetter: (resume: ResumeData, letter: string, compile = true) =>

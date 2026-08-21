@@ -111,7 +111,7 @@ function InterviewsContent() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="font-semibold text-white text-lg">Interview Tracker</h1>
+            <h1 className="font-semibold text-slate-900 dark:text-white text-lg">Interview Tracker</h1>
             <p className="text-xs text-slate-500 mt-0.5">{activeCount} active · {interviews.length} total</p>
           </div>
           {!showForm && (
@@ -124,7 +124,7 @@ function InterviewsContent() {
         {/* New interview form */}
         {showForm && (
           <form onSubmit={handleCreate} className="card space-y-3 max-w-xl">
-            <h3 className="font-medium text-white">New Interview</h3>
+            <h3 className="font-medium text-slate-900 dark:text-white">New Interview</h3>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label">Company *</label>
@@ -195,10 +195,10 @@ function InterviewsContent() {
 
         {/* Kanban */}
         {fetching ? (
-          <p className="text-slate-400 text-sm">Loading…</p>
+          <p className="text-slate-600 dark:text-slate-400 text-sm">Loading…</p>
         ) : interviews.length === 0 ? (
           <div className="card text-center py-16">
-            <p className="text-slate-400">No interviews tracked yet.</p>
+            <p className="text-slate-600 dark:text-slate-400">No interviews tracked yet.</p>
             <p className="text-slate-500 text-xs mt-1">
               Click &quot;+ New Interview&quot; or use &quot;Track Interview&quot; on any job card.
             </p>

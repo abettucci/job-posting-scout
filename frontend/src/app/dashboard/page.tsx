@@ -76,8 +76,8 @@ export default function DashboardPage() {
             { label: "Score threshold", value: `${user.score_threshold}/100` },
           ].map((s) => (
             <div key={s.label} className="card text-center">
-              <p className="text-2xl font-bold text-white">{s.value}</p>
-              <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white">{s.value}</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{s.label}</p>
             </div>
           ))}
         </div>
@@ -101,7 +101,7 @@ export default function DashboardPage() {
         {/* Searches */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-white">My Searches</h2>
+            <h2 className="font-semibold text-slate-900 dark:text-white">My Searches</h2>
             {!showForm && (
               <button onClick={() => setShowForm(true)} className="btn-primary text-sm">
                 + Add Search
@@ -119,10 +119,10 @@ export default function DashboardPage() {
           )}
 
           {fetching ? (
-            <p className="text-slate-400 text-sm">Loading…</p>
+            <p className="text-slate-600 dark:text-slate-400 text-sm">Loading…</p>
           ) : searches.length === 0 ? (
             <div className="card text-center py-8">
-              <p className="text-slate-400 text-sm">No searches yet.</p>
+              <p className="text-slate-600 dark:text-slate-400 text-sm">No searches yet.</p>
               <p className="text-slate-500 text-xs mt-1">
                 Add a LinkedIn Jobs search URL to start monitoring.
               </p>
@@ -132,14 +132,14 @@ export default function DashboardPage() {
               {searches.map((s) => (
                 <div key={s.search_id} className="card flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{s.label}</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{s.label}</p>
                     <p className="text-xs text-slate-500 truncate">{s.url}</p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button
                       onClick={() => toggleSearch(s)}
                       className={`relative w-10 h-5 rounded-full transition-colors ${
-                        s.active ? "bg-brand" : "bg-slate-600"
+                        s.active ? "bg-brand" : "bg-slate-300 dark:bg-slate-600"
                       }`}
                     >
                       <span
@@ -164,17 +164,17 @@ export default function DashboardPage() {
         {/* Recent high-score jobs */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-white">Recent Matches</h2>
+            <h2 className="font-semibold text-slate-900 dark:text-white">Recent Matches</h2>
             <a href="/jobs" className="text-sm text-brand hover:text-brand-light transition-colors">
               View all →
             </a>
           </div>
 
           {fetching ? (
-            <p className="text-slate-400 text-sm">Loading…</p>
+            <p className="text-slate-600 dark:text-slate-400 text-sm">Loading…</p>
           ) : jobs.length === 0 ? (
             <div className="card text-center py-8">
-              <p className="text-slate-400 text-sm">No jobs yet.</p>
+              <p className="text-slate-600 dark:text-slate-400 text-sm">No jobs yet.</p>
               <p className="text-slate-500 text-xs mt-1">
                 The scraper runs 4× per weekday. Check back later.
               </p>

@@ -91,7 +91,7 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="card space-y-4">
-      <h3 className="font-medium text-white">New Search</h3>
+      <h3 className="font-medium text-slate-900 dark:text-white">New Search</h3>
 
       {/* Source selector */}
       <div>
@@ -105,7 +105,7 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
               className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                 source === s.id
                   ? "bg-brand text-white"
-                  : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                  : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600"
               }`}
             >
               {s.label}

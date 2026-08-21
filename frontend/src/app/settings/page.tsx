@@ -39,13 +39,13 @@ export default function SettingsPage() {
     <>
       <Nav />
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
-        <h1 className="font-semibold text-white text-lg">Settings</h1>
+        <h1 className="font-semibold text-slate-900 dark:text-white text-lg">Settings</h1>
 
         <TelegramLink />
 
         {fetching ? (
           <div className="card">
-            <p className="text-slate-400 text-sm">Loading profile…</p>
+            <p className="text-slate-600 dark:text-slate-400 text-sm">Loading profile…</p>
           </div>
         ) : (
           <ProfileEditor

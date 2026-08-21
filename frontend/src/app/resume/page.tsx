@@ -33,6 +33,10 @@ const EMPTY_PROJ: ResumeProject = {
   name: "", description: "", url: "", bullets: [""],
 };
 
+// ── Language options ─────────────────────────────────────────────────────────
+
+const LANGUAGES = ["Original", "English", "Spanish", "Portuguese", "French", "German"];
+
 // ── Template metadata ─────────────────────────────────────────────────────────
 
 const TEMPLATES: { id: ResumeTemplate; label: string; desc: string; badge: string; output: string }[] = [
@@ -72,12 +76,12 @@ function ChipInput({
   };
   return (
     <div>
-      <label className="block text-xs text-slate-400 mb-1">{label}</label>
+      <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">{label}</label>
       <div className="flex flex-wrap gap-1.5 mb-2">
         {items.map((item) => (
-          <span key={item} className="flex items-center gap-1 bg-slate-700 text-slate-200 text-xs px-2 py-0.5 rounded-full">
+          <span key={item} className="flex items-center gap-1 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs px-2 py-0.5 rounded-full">
             {item}
-            <button onClick={() => onChange(items.filter((i) => i !== item))} className="text-slate-400 hover:text-white">×</button>
+            <button onClick={() => onChange(items.filter((i) => i !== item))} className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">×</button>
           </span>
         ))}
       </div>
@@ -87,9 +91,9 @@ function ChipInput({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
           placeholder={`Add ${label.toLowerCase()}...`}
-          className="flex-1 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand"
+          className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand"
         />
-        <button onClick={add} className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-sm rounded text-slate-300">+</button>
+        <button onClick={add} className="px-3 py-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-sm rounded text-slate-700 dark:text-slate-300">+</button>
       </div>
     </div>
   );
@@ -102,14 +106,14 @@ function Field({
 }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; multiline?: boolean }) {
   return (
     <div>
-      <label className="block text-xs text-slate-400 mb-1">{label}</label>
+      <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">{label}</label>
       {multiline ? (
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           rows={3}
-          className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-none"
+          className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-none"
         />
       ) : (
         <input
@@ -117,7 +121,7 @@ function Field({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand"
+          className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand"
         />
       )}
     </div>
@@ -183,6 +187,12 @@ export default function ResumePage() {
   const [tailorError, setTailorError] = useState("");
   const [tailoredActive, setTailoredActive] = useState(false);
   const [originalResume, setOriginalResume] = useState<ResumeData | null>(null);
+
+  // Language state
+  const [selectedLanguage, setSelectedLanguage] = useState("Original");
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState("");
+  const [translatedActive, setTranslatedActive] = useState(false);
 
   // Cover letter state
   const [coverJobId, setCoverJobId] = useState<string | null>(null);
@@ -279,7 +289,28 @@ export default function ResumePage() {
   const handleDiscardTailored = () => {
     if (originalResume) setResume(originalResume);
     setTailoredActive(false);
+    setTranslatedActive(false);
     setOriginalResume(null);
+  };
+
+  const handleContinueToDownload = async () => {
+    if (selectedLanguage === "Original") {
+      setStep(4);
+      return;
+    }
+    setTranslating(true);
+    setTranslateError("");
+    try {
+      const translated = await api.translateResume(selectedLanguage);
+      if (!tailoredActive && !translatedActive) setOriginalResume(resume);
+      setResume(translated);
+      setTranslatedActive(true);
+      setStep(4);
+    } catch (e: unknown) {
+      setTranslateError(e instanceof Error ? e.message : "Could not translate resume");
+    } finally {
+      setTranslating(false);
+    }
   };
 
   const availableTemplates = tailoredActive
@@ -385,13 +416,13 @@ export default function ResumePage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       {/* Tab switcher */}
-      <div className="flex gap-1 mb-8 bg-slate-800/50 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 mb-8 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-lg w-fit">
         {(["builder", "tailor", "cover", "checker"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setActiveTab(t)}
             className={`px-5 py-2 rounded-md text-sm font-medium transition-colors capitalize ${
-              activeTab === t ? "bg-brand text-white" : "text-slate-400 hover:text-white"
+              activeTab === t ? "bg-brand text-white" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
           >
             {t === "builder" ? "Resume Builder" : t === "tailor" ? "Tailor CV" : t === "cover" ? "Cover Letter" : "Resume Checker"}
@@ -412,15 +443,15 @@ export default function ResumePage() {
                       ? "bg-brand text-white"
                       : step > s
                       ? "bg-green-600 text-white cursor-pointer"
-                      : "bg-slate-700 text-slate-400"
+                      : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
                   }`}
                 >
                   {step > s ? "✓" : s}
                 </button>
-                {s < 4 && <div className={`flex-1 h-0.5 w-12 ${step > s ? "bg-green-600" : "bg-slate-700"}`} />}
+                {s < 4 && <div className={`flex-1 h-0.5 w-12 ${step > s ? "bg-green-600" : "bg-slate-200 dark:bg-slate-700"}`} />}
               </div>
             ))}
-            <div className="ml-2 text-sm text-slate-400">
+            <div className="ml-2 text-sm text-slate-600 dark:text-slate-400">
               {["Upload", "Edit", "Template", "Download"][step - 1]}
             </div>
           </div>
@@ -434,7 +465,7 @@ export default function ResumePage() {
             <div className="space-y-6">
               <div>
                 <h2 className="text-xl font-semibold mb-1">Import your CV</h2>
-                <p className="text-slate-400 text-sm">Upload a PDF or DOCX and Claude will extract your data automatically.</p>
+                <p className="text-slate-600 dark:text-slate-400 text-sm">Upload a PDF or DOCX and Claude will extract your data automatically.</p>
               </div>
 
               <div className="flex gap-2 mb-4">
@@ -443,7 +474,7 @@ export default function ResumePage() {
                     key={m}
                     onClick={() => setUploadMode(m)}
                     className={`px-4 py-1.5 rounded-full text-sm transition-colors ${
-                      uploadMode === m ? "bg-slate-600 text-white" : "text-slate-400 hover:text-white"
+                      uploadMode === m ? "bg-slate-300 dark:bg-slate-600 text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                     }`}
                   >
                     {m === "file" ? "File upload" : "Google Drive"}
@@ -456,7 +487,7 @@ export default function ResumePage() {
                   onDrop={handleDrop}
                   onDragOver={(e) => e.preventDefault()}
                   onClick={() => fileRef.current?.click()}
-                  className="border-2 border-dashed border-slate-600 hover:border-brand rounded-xl p-12 text-center cursor-pointer transition-colors"
+                  className="border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-brand rounded-xl p-12 text-center cursor-pointer transition-colors"
                 >
                   <input
                     ref={fileRef}
@@ -466,25 +497,25 @@ export default function ResumePage() {
                     onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); }}
                   />
                   {uploading ? (
-                    <p className="text-slate-400">Parsing with Claude...</p>
+                    <p className="text-slate-600 dark:text-slate-400">Parsing with Claude...</p>
                   ) : (
                     <>
                       <div className="text-4xl mb-3">📄</div>
-                      <p className="text-white font-medium">Drop your CV here or click to browse</p>
+                      <p className="text-slate-900 dark:text-white font-medium">Drop your CV here or click to browse</p>
                       <p className="text-slate-500 text-sm mt-1">PDF or DOCX</p>
                     </>
                   )}
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <p className="text-sm text-slate-400">Paste a Google Drive share link (set access to "Anyone with the link").</p>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">Paste a Google Drive share link (set access to "Anyone with the link").</p>
                   <div className="flex gap-2">
                     <input
                       type="url"
                       value={driveUrl}
                       onChange={(e) => setDriveUrl(e.target.value)}
                       placeholder="https://drive.google.com/file/d/..."
-                      className="flex-1 bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand"
+                      className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand"
                     />
                     <button
                       onClick={handleDriveUpload}
@@ -500,7 +531,7 @@ export default function ResumePage() {
               <div className="text-center text-slate-500 text-sm">or</div>
               <button
                 onClick={() => setStep(2)}
-                className="w-full py-2.5 border border-slate-600 hover:border-slate-400 rounded-lg text-slate-300 text-sm transition-colors"
+                className="w-full py-2.5 border border-slate-300 dark:border-slate-600 hover:border-slate-400 rounded-lg text-slate-700 dark:text-slate-300 text-sm transition-colors"
               >
                 Start from scratch
               </button>
@@ -514,7 +545,7 @@ export default function ResumePage() {
 
               {/* Personal Info */}
               <section className="space-y-3">
-                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">Personal Information</h3>
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Personal Information</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Full Name" value={resume.name} onChange={(v) => setField("name", v)} />
                   <Field label="Email" value={resume.email} onChange={(v) => setField("email", v)} />
@@ -532,7 +563,7 @@ export default function ResumePage() {
               {/* Experience */}
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">Experience</h3>
+                  <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Experience</h3>
                   <button
                     onClick={() => setField("experience", [...resume.experience, { ...EMPTY_EXP }])}
                     className="text-xs text-brand hover:underline"
@@ -541,7 +572,7 @@ export default function ResumePage() {
                   </button>
                 </div>
                 {resume.experience.map((exp, i) => (
-                  <div key={i} className="bg-slate-800/60 border border-slate-700 rounded-lg p-4 space-y-3">
+                  <div key={i} className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
                     <div className="flex justify-between">
                       <span className="text-xs text-slate-500">Position {i + 1}</span>
                       <button
@@ -571,7 +602,7 @@ export default function ResumePage() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Bullets (one per line)</label>
+                      <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Bullets (one per line)</label>
                       <textarea
                         value={exp.bullets.join("\n")}
                         onChange={(e) => {
@@ -580,7 +611,7 @@ export default function ResumePage() {
                           setField("experience", updated);
                         }}
                         rows={4}
-                        className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-none font-mono"
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-none font-mono"
                         placeholder="Led team of 5 engineers to deliver X feature&#10;Reduced API latency by 40% via caching"
                       />
                     </div>
@@ -591,7 +622,7 @@ export default function ResumePage() {
               {/* Education */}
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">Education</h3>
+                  <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Education</h3>
                   <button
                     onClick={() => setField("education", [...resume.education, { ...EMPTY_EDU }])}
                     className="text-xs text-brand hover:underline"
@@ -600,7 +631,7 @@ export default function ResumePage() {
                   </button>
                 </div>
                 {resume.education.map((ed, i) => (
-                  <div key={i} className="bg-slate-800/60 border border-slate-700 rounded-lg p-4 space-y-3">
+                  <div key={i} className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
                     <div className="flex justify-between">
                       <span className="text-xs text-slate-500">Education {i + 1}</span>
                       <button onClick={() => setField("education", resume.education.filter((_, j) => j !== i))} className="text-xs text-red-400 hover:text-red-300">Remove</button>
@@ -620,7 +651,7 @@ export default function ResumePage() {
 
               {/* Skills */}
               <section className="space-y-4">
-                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">Skills</h3>
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Skills</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <ChipInput label="Programming Languages" items={resume.skills.languages} onChange={(v) => setSkill("languages", v)} />
                   <ChipInput label="Frameworks & Libraries" items={resume.skills.frameworks} onChange={(v) => setSkill("frameworks", v)} />
@@ -632,11 +663,11 @@ export default function ResumePage() {
               {/* Projects */}
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">Projects</h3>
+                  <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Projects</h3>
                   <button onClick={() => setField("projects", [...resume.projects, { ...EMPTY_PROJ }])} className="text-xs text-brand hover:underline">+ Add project</button>
                 </div>
                 {resume.projects.map((p, i) => (
-                  <div key={i} className="bg-slate-800/60 border border-slate-700 rounded-lg p-4 space-y-3">
+                  <div key={i} className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
                     <div className="flex justify-between">
                       <span className="text-xs text-slate-500">Project {i + 1}</span>
                       <button onClick={() => setField("projects", resume.projects.filter((_, j) => j !== i))} className="text-xs text-red-400 hover:text-red-300">Remove</button>
@@ -649,12 +680,12 @@ export default function ResumePage() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Bullets (one per line)</label>
+                      <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Bullets (one per line)</label>
                       <textarea
                         value={p.bullets.join("\n")}
                         onChange={(e) => { const u = [...resume.projects]; u[i] = { ...p, bullets: e.target.value.split("\n") }; setField("projects", u); }}
                         rows={3}
-                        className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-none font-mono"
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-none font-mono"
                       />
                     </div>
                   </div>
@@ -663,12 +694,12 @@ export default function ResumePage() {
 
               {/* Certifications */}
               <section className="space-y-4">
-                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">Certifications</h3>
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Certifications</h3>
                 <ChipInput label="Certifications" items={resume.certifications} onChange={(v) => setField("certifications", v)} />
               </section>
 
               <div className="flex justify-between pt-4">
-                <button onClick={() => setStep(1)} className="px-4 py-2 text-sm text-slate-400 hover:text-white">← Back</button>
+                <button onClick={() => setStep(1)} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">← Back</button>
                 <button
                   onClick={handleSaveAndContinue}
                   disabled={saving}
@@ -683,9 +714,9 @@ export default function ResumePage() {
           {/* Step 3 — Template selection */}
           {step === 3 && (
             <div className="space-y-6">
-              {tailoredActive && (
+              {(tailoredActive || translatedActive) && (
                 <div className="flex items-center justify-between gap-3 p-3 bg-brand/10 border border-brand/40 rounded-lg text-sm">
-                  <span className="text-slate-200">🎯 This is a tailored version — not saved to your profile.</span>
+                  <span className="text-slate-800 dark:text-slate-200">🎯 This is a modified version — not saved to your profile.</span>
                   <button onClick={handleDiscardTailored} className="text-brand hover:underline whitespace-nowrap">
                     Discard & restore original
                   </button>
@@ -700,20 +731,20 @@ export default function ResumePage() {
                     className={`text-left p-5 rounded-xl border-2 transition-all ${
                       selectedTemplate === tpl.id
                         ? "border-brand bg-brand/10"
-                        : "border-slate-700 hover:border-slate-500"
+                        : "border-slate-200 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-500"
                     }`}
                   >
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-semibold text-white">{tpl.label}</span>
-                          <span className="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">{tpl.badge}</span>
+                          <span className="font-semibold text-slate-900 dark:text-white">{tpl.label}</span>
+                          <span className="text-xs bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-full">{tpl.badge}</span>
                           <span className="text-xs bg-green-900/60 text-green-400 px-2 py-0.5 rounded-full">↓ {tpl.output}</span>
                         </div>
-                        <p className="text-sm text-slate-400">{tpl.desc}</p>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">{tpl.desc}</p>
                       </div>
                       <div className={`w-5 h-5 rounded-full border-2 mt-0.5 flex-shrink-0 ${
-                        selectedTemplate === tpl.id ? "border-brand bg-brand" : "border-slate-500"
+                        selectedTemplate === tpl.id ? "border-brand bg-brand" : "border-slate-400 dark:border-slate-500"
                       }`} />
                     </div>
                     {tpl.id === "latex-us" && (
@@ -724,13 +755,35 @@ export default function ResumePage() {
                   </button>
                 ))}
               </div>
-              <div className="flex justify-between">
-                <button onClick={() => setStep(2)} className="px-4 py-2 text-sm text-slate-400 hover:text-white">← Back</button>
-                <button
-                  onClick={() => setStep(4)}
-                  className="px-6 py-2.5 bg-brand hover:bg-brand/90 text-white text-sm font-medium rounded-lg"
+
+              <div>
+                <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Generate in</label>
+                <select
+                  value={selectedLanguage}
+                  onChange={(e) => setSelectedLanguage(e.target.value)}
+                  className="w-full sm:w-64 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-brand"
                 >
-                  Continue →
+                  {LANGUAGES.map((l) => (
+                    <option key={l} value={l}>{l === "Original" ? "Original (no translation)" : l}</option>
+                  ))}
+                </select>
+                {selectedLanguage !== "Original" && (
+                  <p className="text-xs text-slate-500 mt-1">Claude translates your saved resume into {selectedLanguage} — names, contact info, and tech/tool names stay as-is.</p>
+                )}
+              </div>
+
+              {translateError && (
+                <div className="p-3 bg-red-900/40 border border-red-700 rounded text-red-300 text-sm">{translateError}</div>
+              )}
+
+              <div className="flex justify-between">
+                <button onClick={() => setStep(2)} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">← Back</button>
+                <button
+                  onClick={handleContinueToDownload}
+                  disabled={translating}
+                  className="px-6 py-2.5 bg-brand hover:bg-brand/90 disabled:opacity-50 text-white text-sm font-medium rounded-lg"
+                >
+                  {translating ? "Translating..." : "Continue →"}
                 </button>
               </div>
             </div>
@@ -739,24 +792,24 @@ export default function ResumePage() {
           {/* Step 4 — Download */}
           {step === 4 && (
             <div className="space-y-6">
-              {tailoredActive && (
+              {(tailoredActive || translatedActive) && (
                 <div className="flex items-center justify-between gap-3 p-3 bg-brand/10 border border-brand/40 rounded-lg text-sm">
-                  <span className="text-slate-200">🎯 This is a tailored version — not saved to your profile.</span>
+                  <span className="text-slate-800 dark:text-slate-200">🎯 This is a modified version — not saved to your profile.</span>
                   <button onClick={handleDiscardTailored} className="text-brand hover:underline whitespace-nowrap">
                     Discard & restore original
                   </button>
                 </div>
               )}
               <h2 className="text-xl font-semibold">Download your resume</h2>
-              <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-6 text-center space-y-4">
+              <div className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-6 text-center space-y-4">
                 <div className="text-5xl">
                   {selectedTemplate === "latex-us" ? "📄" : "📑"}
                 </div>
                 <div>
-                  <p className="font-semibold text-white">
+                  <p className="font-semibold text-slate-900 dark:text-white">
                     {TEMPLATES.find((t) => t.id === selectedTemplate)?.label} template
                   </p>
-                  <p className="text-sm text-slate-400 mt-1">
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
                     {selectedTemplate === "latex-us"
                       ? "A .tex file ready to compile in Overleaf or with pdflatex"
                       : "A PDF compiled with Typst — opens in any PDF viewer"}
@@ -783,10 +836,10 @@ export default function ResumePage() {
                 )}
               </div>
               <div className="flex justify-between">
-                <button onClick={() => setStep(3)} className="px-4 py-2 text-sm text-slate-400 hover:text-white">← Change template</button>
+                <button onClick={() => setStep(3)} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">← Change template</button>
                 <button
                   onClick={() => { setStep(2); }}
-                  className="px-4 py-2 text-sm text-slate-400 hover:text-white"
+                  className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 >
                   Edit resume →
                 </button>
@@ -801,7 +854,7 @@ export default function ResumePage() {
         <div className="space-y-6">
           <div>
             <h2 className="text-xl font-semibold mb-1">Tailor your CV for a job</h2>
-            <p className="text-slate-400 text-sm">
+            <p className="text-slate-600 dark:text-slate-400 text-sm">
               Claude rewrites your saved resume's summary and reorders/emphasizes your existing bullets and skills
               to match this job — it never invents experience, employers, or metrics that aren't already in your
               resume. Output as Typst (Silver Dev) or LaTeX.
@@ -809,24 +862,24 @@ export default function ResumePage() {
           </div>
 
           {tailorJobId ? (
-            <div className="p-3 bg-slate-800/60 border border-slate-700 rounded-lg text-sm text-slate-300 flex items-center justify-between gap-3">
+            <div className="p-3 bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-300 flex items-center justify-between gap-3">
               <span>Tailoring for the job you selected from your job feed.</span>
               <button
                 onClick={() => setTailorJobId(null)}
-                className="text-xs text-slate-400 hover:text-white whitespace-nowrap"
+                className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white whitespace-nowrap"
               >
                 Paste a description instead
               </button>
             </div>
           ) : (
             <div className="space-y-3">
-              <label className="block text-sm text-slate-300 font-medium">Job Description</label>
+              <label className="block text-sm text-slate-700 dark:text-slate-300 font-medium">Job Description</label>
               <textarea
                 value={tailorJobDesc}
                 onChange={(e) => setTailorJobDesc(e.target.value)}
                 rows={8}
                 placeholder="Paste the full job description here..."
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
+                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
               />
             </div>
           )}
@@ -850,31 +903,31 @@ export default function ResumePage() {
         <div className="space-y-6">
           <div>
             <h2 className="text-xl font-semibold mb-1">Cover letter for a job</h2>
-            <p className="text-slate-400 text-sm">
+            <p className="text-slate-600 dark:text-slate-400 text-sm">
               Claude writes a letter grounded only in your saved resume — no invented employers, projects, or
               metrics — referencing 2-3 concrete things that map to what the job asks for.
             </p>
           </div>
 
           {coverJobId ? (
-            <div className="p-3 bg-slate-800/60 border border-slate-700 rounded-lg text-sm text-slate-300 flex items-center justify-between gap-3">
+            <div className="p-3 bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-300 flex items-center justify-between gap-3">
               <span>Writing for the job you selected from your job feed.</span>
               <button
                 onClick={() => setCoverJobId(null)}
-                className="text-xs text-slate-400 hover:text-white whitespace-nowrap"
+                className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white whitespace-nowrap"
               >
                 Paste a description instead
               </button>
             </div>
           ) : (
             <div className="space-y-3">
-              <label className="block text-sm text-slate-300 font-medium">Job Description</label>
+              <label className="block text-sm text-slate-700 dark:text-slate-300 font-medium">Job Description</label>
               <textarea
                 value={coverJobDesc}
                 onChange={(e) => setCoverJobDesc(e.target.value)}
                 rows={8}
                 placeholder="Paste the full job description here..."
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
+                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
               />
             </div>
           )}
@@ -893,14 +946,14 @@ export default function ResumePage() {
 
           {coverLetter && (
             <div className="space-y-3">
-              <label className="block text-sm text-slate-300 font-medium">
+              <label className="block text-sm text-slate-700 dark:text-slate-300 font-medium">
                 Letter body <span className="text-slate-500 font-normal">(editable)</span>
               </label>
               <textarea
                 value={coverLetter}
                 onChange={(e) => setCoverLetter(e.target.value)}
                 rows={12}
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-sm text-white resize-y"
+                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-900 dark:text-white resize-y"
               />
               <button
                 onClick={handleDownloadCoverLetter}
@@ -919,19 +972,19 @@ export default function ResumePage() {
         <div className="space-y-6">
           <div>
             <h2 className="text-xl font-semibold mb-1">Resume Checker</h2>
-            <p className="text-slate-400 text-sm">
+            <p className="text-slate-600 dark:text-slate-400 text-sm">
               Paste a job description and Claude analyzes how well your saved resume matches — ATS score, skills gaps, quick wins.
             </p>
           </div>
 
           <div className="space-y-3">
-            <label className="block text-sm text-slate-300 font-medium">Job Description</label>
+            <label className="block text-sm text-slate-700 dark:text-slate-300 font-medium">Job Description</label>
             <textarea
               value={checkJobDesc}
               onChange={(e) => setCheckJobDesc(e.target.value)}
               rows={8}
               placeholder="Paste the full job description here..."
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
+              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
             />
           </div>
 
@@ -951,18 +1004,18 @@ export default function ResumePage() {
             <div className="space-y-6 mt-4">
               {/* Score overview */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-5 flex items-center gap-4">
+                <div className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-5 flex items-center gap-4">
                   <ScoreRing score={checkResult.overall_score} size={72} />
                   <div>
-                    <p className="text-xs text-slate-400 uppercase tracking-wide">Overall Match</p>
-                    <p className="text-lg font-bold text-white">{checkResult.overall_score}/100</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wide">Overall Match</p>
+                    <p className="text-lg font-bold text-slate-900 dark:text-white">{checkResult.overall_score}/100</p>
                   </div>
                 </div>
-                <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-5 flex items-center gap-4">
+                <div className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-5 flex items-center gap-4">
                   <ScoreRing score={checkResult.ats_score} size={72} />
                   <div>
-                    <p className="text-xs text-slate-400 uppercase tracking-wide">ATS Score</p>
-                    <p className="text-lg font-bold text-white">{checkResult.ats_score}/100</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wide">ATS Score</p>
+                    <p className="text-lg font-bold text-slate-900 dark:text-white">{checkResult.ats_score}/100</p>
                   </div>
                 </div>
               </div>
@@ -970,9 +1023,9 @@ export default function ResumePage() {
               {/* Section scores */}
               <div className="grid grid-cols-2 gap-3">
                 {Object.entries(checkResult.sections).map(([key, section]) => (
-                  <div key={key} className="bg-slate-800/40 border border-slate-700 rounded-lg p-4">
+                  <div key={key} className="bg-slate-100/40 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-medium text-slate-300 capitalize">
+                      <span className="text-xs font-medium text-slate-700 dark:text-slate-300 capitalize">
                         {key.replace(/_/g, " ")}
                       </span>
                       <span className={`text-sm font-bold ${
@@ -981,13 +1034,13 @@ export default function ResumePage() {
                         {section.score}
                       </span>
                     </div>
-                    <div className="w-full h-1 bg-slate-700 rounded-full mb-2">
+                    <div className="w-full h-1 bg-slate-200 dark:bg-slate-700 rounded-full mb-2">
                       <div
                         className={`h-1 rounded-full ${section.score >= 75 ? "bg-green-500" : section.score >= 50 ? "bg-amber-500" : "bg-red-500"}`}
                         style={{ width: `${section.score}%` }}
                       />
                     </div>
-                    <p className="text-xs text-slate-400">{section.feedback}</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">{section.feedback}</p>
                     {section.missing && section.missing.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {section.missing.slice(0, 4).map((m) => (
@@ -1007,8 +1060,8 @@ export default function ResumePage() {
               </div>
 
               {/* Summary */}
-              <div className="bg-slate-800/40 border border-slate-700 rounded-lg p-4">
-                <p className="text-sm text-slate-300">{checkResult.summary}</p>
+              <div className="bg-slate-100/40 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+                <p className="text-sm text-slate-700 dark:text-slate-300">{checkResult.summary}</p>
               </div>
 
               {/* Strengths & Gaps */}
@@ -1017,7 +1070,7 @@ export default function ResumePage() {
                   <h4 className="text-sm font-semibold text-green-400 mb-2">Top Strengths</h4>
                   <ul className="space-y-1.5">
                     {checkResult.top_strengths.map((s) => (
-                      <li key={s} className="flex items-start gap-2 text-sm text-slate-300">
+                      <li key={s} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
                         <span className="text-green-500 mt-0.5">✓</span>{s}
                       </li>
                     ))}
@@ -1027,7 +1080,7 @@ export default function ResumePage() {
                   <h4 className="text-sm font-semibold text-red-400 mb-2">Critical Gaps</h4>
                   <ul className="space-y-1.5">
                     {checkResult.critical_gaps.map((g) => (
-                      <li key={g} className="flex items-start gap-2 text-sm text-slate-300">
+                      <li key={g} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
                         <span className="text-red-500 mt-0.5">✗</span>{g}
                       </li>
                     ))}
@@ -1040,9 +1093,9 @@ export default function ResumePage() {
                 <h4 className="text-sm font-semibold text-brand mb-3">Quick Wins</h4>
                 <ol className="space-y-2">
                   {checkResult.quick_wins.map((w, i) => (
-                    <li key={i} className="flex items-start gap-3 bg-slate-800/40 border border-slate-700 rounded-lg px-4 py-3">
+                    <li key={i} className="flex items-start gap-3 bg-slate-100/40 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-3">
                       <span className="text-brand font-bold text-sm mt-0.5">{i + 1}</span>
-                      <span className="text-sm text-slate-200">{w}</span>
+                      <span className="text-sm text-slate-800 dark:text-slate-200">{w}</span>
                     </li>
                   ))}
                 </ol>
