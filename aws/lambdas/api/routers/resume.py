@@ -219,12 +219,20 @@ Rules:
   unrelated to their name, copy it exactly as written. Do not autocomplete or correct it.
 """
 
-def _parse_with_claude(client: Anthropic, text: str) -> ResumeData:
+def _parse_with_claude(client: Anthropic, text: str, links: Optional[List[str]] = None) -> ResumeData:
+    links_block = ""
+    if links:
+        links_block = (
+            "\n\nHyperlinks found embedded in the document (these are the actual link targets, which may "
+            "differ from the visible text — e.g. a link labeled \"LinkedIn\" whose real target is one of "
+            "these URLs). If any of these contain linkedin.com or github.com, use that exact URL for the "
+            "corresponding field instead of guessing from visible text:\n" + "\n".join(links)
+        )
     resp = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=4096,
         system=_PARSE_SYSTEM,
-        messages=[{"role": "user", "content": f"Resume text:\n\n{text[:8000]}"}],
+        messages=[{"role": "user", "content": f"Resume text:\n\n{text[:8000]}{links_block}"}],
     )
     raw = resp.content[0].text.strip()
     # strip markdown code fences if model wraps them
@@ -232,7 +240,23 @@ def _parse_with_claude(client: Anthropic, text: str) -> ResumeData:
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
-    return ResumeData(**json.loads(raw))
+    resume = ResumeData(**json.loads(raw))
+    return _apply_link_overrides(resume, links or [])
+
+
+def _apply_link_overrides(resume: ResumeData, links: List[str]) -> ResumeData:
+    """Deterministically override linkedin/github with the real hyperlink target when one was found —
+    never trust an LLM guess when the actual embedded URL is available."""
+    def clean(url: str) -> str:
+        return re.sub(r"^https?://(www\.)?", "", url).rstrip("/")
+
+    for link in links:
+        low = link.lower()
+        if "linkedin.com" in low:
+            resume.linkedin = clean(link)
+        elif "github.com" in low:
+            resume.github = clean(link)
+    return resume
 
 
 # ── Templates ─────────────────────────────────────────────────────────────────
@@ -863,11 +887,11 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
         else:
             raise HTTPException(400, "Provide a file upload or a Google Drive URL")
 
-        text = _extract_text(content, filename)
+        text, links = _extract_text(content, filename)
         if not text.strip():
             raise HTTPException(422, "Could not extract text from the uploaded file")
 
-        resume = _parse_with_claude(_anthropic, text)
+        resume = _parse_with_claude(_anthropic, text, links)
         return resume.model_dump()
 
     @router.get("")
