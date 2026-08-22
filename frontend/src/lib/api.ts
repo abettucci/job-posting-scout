@@ -88,6 +88,8 @@ export const api = {
     req<Interview>(`/interviews/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteInterview: (id: string) =>
     req<void>(`/interviews/${id}`, { method: "DELETE" }),
+  draftFollowup: (id: string) =>
+    req<{ subject: string; body: string }>(`/interviews/${id}/followup`, { method: "POST" }),
 
   // Resume Builder
   parseResumeFile: (file: File) => {
@@ -126,6 +128,11 @@ export const api = {
     }),
   checkResume: (body: { resume?: ResumeData; job_description?: string; job_id?: string }) =>
     req<ResumeCheckResult>("/resume/check", { method: "POST", body: JSON.stringify(body) }),
+  atsCheck: (body: { template: ResumeTemplate; job_description?: string; job_id?: string }) =>
+    req<AtsCheckResult>("/resume/ats-check", { method: "POST", body: JSON.stringify(body) }),
+  expandProfile: () => req<ExpandResult>("/resume/expand", { method: "POST" }),
+  upskill: (body: { job_description?: string; job_id?: string }) =>
+    req<UpskillResult>("/resume/upskill", { method: "POST", body: JSON.stringify(body) }),
   tailorResume: (body: { job_description?: string; job_id?: string }) =>
     req<ResumeData>("/resume/tailor", { method: "POST", body: JSON.stringify(body) }),
   translateResume: (language: string) =>
@@ -137,6 +144,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ resume, letter, compile }),
     }),
+  saveCvHistory: (body: { company: string; role: string; template: ResumeTemplate; language?: string; job_id?: string; resume: ResumeData }) =>
+    req<CvHistoryEntry>("/resume/history", { method: "POST", body: JSON.stringify(body) }),
+  getCvHistory: () => req<CvHistoryEntry[]>("/resume/history"),
+  downloadCvHistory: (created_at: string) =>
+    reqBlob("/resume/history/download", { method: "POST", body: JSON.stringify({ created_at }) }),
+  deleteCvHistory: (created_at: string) =>
+    req<{ deleted: string }>(`/resume/history?created_at=${encodeURIComponent(created_at)}`, { method: "DELETE" }),
 };
 
 export interface User {
@@ -266,6 +280,16 @@ export interface ResumeData {
 
 export type ResumeTemplate = "typst-modern" | "typst-silver" | "latex-us";
 
+export interface CvHistoryEntry {
+  user_id: string;
+  created_at: string;
+  company: string;
+  role: string;
+  template: ResumeTemplate;
+  language: string;
+  job_id: string;
+}
+
 export interface ResumeCheckSection {
   score: number;
   feedback: string;
@@ -286,5 +310,31 @@ export interface ResumeCheckResult {
   top_strengths: string[];
   critical_gaps: string[];
   quick_wins: string[];
+  summary: string;
+}
+
+export interface AtsCheckResult {
+  ats_score: number;
+  missing_keywords: string[];
+  summary: string;
+  structural_issues: string[];
+}
+
+export interface ExpandResult {
+  suggested_skills: ResumeSkills;
+  suggested_projects: (ResumeProject & { source?: string })[];
+  notes: string;
+}
+
+export interface UpskillGap {
+  skill: string;
+  why: string;
+  priority: "high" | "medium" | "low";
+  resources: string[];
+  estimated_hours: number;
+}
+
+export interface UpskillResult {
+  gaps: UpskillGap[];
   summary: string;
 }

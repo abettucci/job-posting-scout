@@ -93,6 +93,7 @@ jobs:
           terraform import aws_dynamodb_table.telegram_codes $P-telegram-codes 2>/dev/null || true
           terraform import aws_dynamodb_table.interviews     $P-interviews     2>/dev/null || true
           terraform import aws_dynamodb_table.resumes        $P-resumes        2>/dev/null || true
+          terraform import aws_dynamodb_table.cv_history     $P-cv-history     2>/dev/null || true
 
           # IAM
           terraform import aws_iam_role.lambda_exec       $P-lambda-role              2>/dev/null || true

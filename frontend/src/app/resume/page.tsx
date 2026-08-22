@@ -11,6 +11,11 @@ import {
   type ResumeExperience,
   type ResumeEducation,
   type ResumeProject,
+  type CvHistoryEntry,
+  type AtsCheckResult,
+  type ExpandResult,
+  type ResumeSkills,
+  type UpskillResult,
 } from "@/lib/api";
 
 // ── Empty defaults ────────────────────────────────────────────────────────────
@@ -152,7 +157,7 @@ function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = "builder" | "tailor" | "cover" | "checker";
+type Tab = "builder" | "tailor" | "cover" | "checker" | "upskill" | "history";
 
 export default function ResumePage() {
   const { user } = useAuth();
@@ -194,6 +199,37 @@ export default function ResumePage() {
   const [translateError, setTranslateError] = useState("");
   const [translatedActive, setTranslatedActive] = useState(false);
 
+  // ATS-on-PDF check state
+  const [atsChecking, setAtsChecking] = useState(false);
+  const [atsResult, setAtsResult] = useState<AtsCheckResult | null>(null);
+  const [atsError, setAtsError] = useState("");
+
+  // Expand (GitHub) state
+  const [expanding, setExpanding] = useState(false);
+  const [expandResult, setExpandResult] = useState<ExpandResult | null>(null);
+  const [expandError, setExpandError] = useState("");
+  const [expandSelectedSkills, setExpandSelectedSkills] = useState<Record<keyof ResumeSkills, string[]>>({
+    languages: [], frameworks: [], tools: [], other: [],
+  });
+  const [expandSelectedProjects, setExpandSelectedProjects] = useState<number[]>([]);
+
+  // Upskill state
+  const [upskillJobDesc, setUpskillJobDesc] = useState("");
+  const [upskilling, setUpskilling] = useState(false);
+  const [upskillResult, setUpskillResult] = useState<UpskillResult | null>(null);
+  const [upskillError, setUpskillError] = useState("");
+
+  // CV History state
+  const [historyCompany, setHistoryCompany] = useState("");
+  const [historyRole, setHistoryRole] = useState("");
+  const [historySaving, setHistorySaving] = useState(false);
+  const [historySaved, setHistorySaved] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [cvHistory, setCvHistory] = useState<CvHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyListError, setHistoryListError] = useState("");
+  const [downloadingEntry, setDownloadingEntry] = useState<string | null>(null);
+
   // Cover letter state
   const [coverJobId, setCoverJobId] = useState<string | null>(null);
   const [coverJobDesc, setCoverJobDesc] = useState("");
@@ -214,6 +250,10 @@ export default function ResumePage() {
     const params = new URLSearchParams(window.location.search);
     const tailorId = params.get("tailor_job_id");
     const coverId = params.get("cover_job_id");
+    const company = params.get("company");
+    const role = params.get("role");
+    if (company) setHistoryCompany(company);
+    if (role) setHistoryRole(role);
     if (tailorId) {
       setTailorJobId(tailorId);
       setActiveTab("tailor");
@@ -317,6 +357,164 @@ export default function ResumePage() {
     ? TEMPLATES.filter((t) => t.id === "typst-silver" || t.id === "latex-us")
     : TEMPLATES;
 
+  // ── ATS check on the compiled PDF ────────────────────────────────────────────
+
+  const handleAtsCheck = async () => {
+    setAtsChecking(true);
+    setAtsError("");
+    setAtsResult(null);
+    try {
+      const result = await api.atsCheck({
+        template: selectedTemplate,
+        job_id: tailorJobId ?? undefined,
+      });
+      setAtsResult(result);
+    } catch (e: unknown) {
+      setAtsError(e instanceof Error ? e.message : "Could not run ATS check");
+    } finally {
+      setAtsChecking(false);
+    }
+  };
+
+  // ── Expand from GitHub ───────────────────────────────────────────────────────
+
+  const handleExpand = async () => {
+    setExpanding(true);
+    setExpandError("");
+    setExpandResult(null);
+    try {
+      const result = await api.expandProfile();
+      setExpandResult(result);
+      // default: everything suggested starts selected
+      setExpandSelectedSkills({
+        languages: [...result.suggested_skills.languages],
+        frameworks: [...result.suggested_skills.frameworks],
+        tools: [...result.suggested_skills.tools],
+        other: [...result.suggested_skills.other],
+      });
+      setExpandSelectedProjects(result.suggested_projects.map((_, i) => i));
+    } catch (e: unknown) {
+      setExpandError(e instanceof Error ? e.message : "Could not expand profile");
+    } finally {
+      setExpanding(false);
+    }
+  };
+
+  const toggleExpandSkill = (category: keyof ResumeSkills, skill: string) => {
+    setExpandSelectedSkills((prev) => {
+      const current = prev[category];
+      const next = current.includes(skill) ? current.filter((s) => s !== skill) : [...current, skill];
+      return { ...prev, [category]: next };
+    });
+  };
+
+  const toggleExpandProject = (index: number) => {
+    setExpandSelectedProjects((prev) => prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]);
+  };
+
+  const handleMergeExpand = () => {
+    if (!expandResult) return;
+    setResume((r) => {
+      const mergeUnique = (existing: string[], additions: string[]) =>
+        [...existing, ...additions.filter((a) => !existing.includes(a))];
+      return {
+        ...r,
+        skills: {
+          languages: mergeUnique(r.skills.languages, expandSelectedSkills.languages),
+          frameworks: mergeUnique(r.skills.frameworks, expandSelectedSkills.frameworks),
+          tools: mergeUnique(r.skills.tools, expandSelectedSkills.tools),
+          other: mergeUnique(r.skills.other, expandSelectedSkills.other),
+        },
+        projects: [
+          ...r.projects,
+          ...expandResult.suggested_projects
+            .filter((_, i) => expandSelectedProjects.includes(i))
+            .map(({ source, ...p }) => { void source; return p; }),
+        ],
+      };
+    });
+    setExpandResult(null);
+  };
+
+  // ── Upskill ──────────────────────────────────────────────────────────────────
+
+  const handleUpskill = async () => {
+    setUpskilling(true);
+    setUpskillError("");
+    setUpskillResult(null);
+    try {
+      const result = await api.upskill({ job_description: upskillJobDesc.trim() || undefined });
+      setUpskillResult(result);
+    } catch (e: unknown) {
+      setUpskillError(e instanceof Error ? e.message : "Could not analyze skill gaps");
+    } finally {
+      setUpskilling(false);
+    }
+  };
+
+  // ── CV History ───────────────────────────────────────────────────────────────
+
+  const loadCvHistory = async () => {
+    setHistoryLoading(true);
+    setHistoryListError("");
+    try {
+      const items = await api.getCvHistory();
+      setCvHistory(items);
+    } catch (e: unknown) {
+      setHistoryListError(e instanceof Error ? e.message : "Could not load CV history");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleSaveToHistory = async () => {
+    if (!historyCompany.trim() || !historyRole.trim()) return;
+    setHistorySaving(true);
+    setHistoryError("");
+    setHistorySaved(false);
+    try {
+      await api.saveCvHistory({
+        company: historyCompany.trim(),
+        role: historyRole.trim(),
+        template: selectedTemplate,
+        language: selectedLanguage,
+        job_id: tailorJobId ?? undefined,
+        resume,
+      });
+      setHistorySaved(true);
+    } catch (e: unknown) {
+      setHistoryError(e instanceof Error ? e.message : "Could not save to history");
+    } finally {
+      setHistorySaving(false);
+    }
+  };
+
+  const handleDownloadHistoryEntry = async (entry: CvHistoryEntry) => {
+    setDownloadingEntry(entry.created_at);
+    try {
+      const blob = await api.downloadCvHistory(entry.created_at);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = entry.template === "latex-us" ? "resume.tex" : "resume.pdf";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      setHistoryListError(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setDownloadingEntry(null);
+    }
+  };
+
+  const handleDeleteHistoryEntry = async (created_at: string) => {
+    try {
+      await api.deleteCvHistory(created_at);
+      setCvHistory((items) => items.filter((i) => i.created_at !== created_at));
+    } catch (e: unknown) {
+      setHistoryListError(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
+
   // ── Step 1: Upload ──────────────────────────────────────────────────────────
 
   const handleFileUpload = useCallback(async (file: File) => {
@@ -417,15 +615,15 @@ export default function ResumePage() {
     <div className="max-w-3xl mx-auto px-4 py-8">
       {/* Tab switcher */}
       <div className="flex gap-1 mb-8 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-lg w-fit">
-        {(["builder", "tailor", "cover", "checker"] as Tab[]).map((t) => (
+        {(["builder", "tailor", "cover", "checker", "upskill", "history"] as Tab[]).map((t) => (
           <button
             key={t}
-            onClick={() => setActiveTab(t)}
+            onClick={() => { setActiveTab(t); if (t === "history") loadCvHistory(); }}
             className={`px-5 py-2 rounded-md text-sm font-medium transition-colors capitalize ${
               activeTab === t ? "bg-brand text-white" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
           >
-            {t === "builder" ? "Resume Builder" : t === "tailor" ? "Tailor CV" : t === "cover" ? "Cover Letter" : "Resume Checker"}
+            {t === "builder" ? "Resume Builder" : t === "tailor" ? "Tailor CV" : t === "cover" ? "Cover Letter" : t === "checker" ? "Resume Checker" : t === "upskill" ? "Upskill" : "History"}
           </button>
         ))}
       </div>
@@ -649,6 +847,68 @@ export default function ResumePage() {
                 ))}
               </section>
 
+              {/* Expand from GitHub */}
+              <section className="space-y-3">
+                <button
+                  onClick={handleExpand}
+                  disabled={expanding}
+                  className="text-sm text-brand hover:underline disabled:opacity-50"
+                >
+                  {expanding ? "Scanning GitHub..." : "✨ Expand from GitHub"}
+                </button>
+                <p className="text-xs text-slate-500">Scans your public repos for skills/projects not already listed here. Nothing is added automatically — you pick what to merge.</p>
+                {expandError && <p className="text-red-500 dark:text-red-400 text-sm">{expandError}</p>}
+                {expandResult && (
+                  <div className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
+                    <p className="text-xs text-slate-500">{expandResult.notes}</p>
+                    {(["languages", "frameworks", "tools", "other"] as const).map((cat) =>
+                      expandResult.suggested_skills[cat].length > 0 && (
+                        <div key={cat}>
+                          <p className="text-xs font-medium text-slate-700 dark:text-slate-300 capitalize mb-1">{cat}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {expandResult.suggested_skills[cat].map((skill) => (
+                              <button
+                                key={skill}
+                                onClick={() => toggleExpandSkill(cat, skill)}
+                                className={`text-xs px-2 py-0.5 rounded-full border ${
+                                  expandSelectedSkills[cat].includes(skill)
+                                    ? "bg-brand/20 border-brand text-brand"
+                                    : "border-slate-300 dark:border-slate-600 text-slate-500"
+                                }`}
+                              >
+                                {skill}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    )}
+                    {expandResult.suggested_projects.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-medium text-slate-700 dark:text-slate-300">Projects</p>
+                        {expandResult.suggested_projects.map((p, i) => (
+                          <label key={i} className="flex items-start gap-2 text-xs text-slate-600 dark:text-slate-400 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={expandSelectedProjects.includes(i)}
+                              onChange={() => toggleExpandProject(i)}
+                              className="mt-0.5"
+                            />
+                            <span><strong className="text-slate-800 dark:text-slate-200">{p.name}</strong> — {p.description}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      onClick={handleMergeExpand}
+                      className="px-3 py-1.5 bg-brand hover:bg-brand/90 text-white text-xs font-medium rounded-lg"
+                    >
+                      Merge selected into resume
+                    </button>
+                  </div>
+                )}
+              </section>
+
               {/* Skills */}
               <section className="space-y-4">
                 <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Skills</h3>
@@ -757,7 +1017,7 @@ export default function ResumePage() {
               </div>
 
               <div>
-                <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Generate in</label>
+                <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Language</label>
                 <select
                   value={selectedLanguage}
                   onChange={(e) => setSelectedLanguage(e.target.value)}
@@ -774,6 +1034,41 @@ export default function ResumePage() {
 
               {translateError && (
                 <div className="p-3 bg-red-900/40 border border-red-700 rounded text-red-300 text-sm">{translateError}</div>
+              )}
+
+              {(selectedTemplate === "typst-modern" || selectedTemplate === "typst-silver") && (
+                <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
+                  <button
+                    onClick={handleAtsCheck}
+                    disabled={atsChecking}
+                    className="text-sm text-brand hover:underline disabled:opacity-50"
+                  >
+                    {atsChecking ? "Compiling & checking..." : "🔍 Check ATS-readability of compiled PDF"}
+                  </button>
+                  <p className="text-xs text-slate-500">Compiles the PDF and inspects the actual extracted text layer — catches rendering issues the raw data check can't see.</p>
+                  {atsError && <p className="text-red-500 dark:text-red-400 text-sm">{atsError}</p>}
+                  {atsResult && (
+                    <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                      <p className="text-sm font-medium text-slate-900 dark:text-white">ATS score: {atsResult.ats_score}/100</p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400">{atsResult.summary}</p>
+                      {atsResult.structural_issues.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-amber-600 dark:text-amber-400">Structural issues:</p>
+                          <ul className="list-disc list-inside text-xs text-slate-600 dark:text-slate-400">
+                            {atsResult.structural_issues.map((issue, i) => <li key={i}>{issue}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {atsResult.missing_keywords.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {atsResult.missing_keywords.map((k) => (
+                            <span key={k} className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">{k}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
 
               <div className="flex justify-between">
@@ -835,6 +1130,27 @@ export default function ResumePage() {
                   </div>
                 )}
               </div>
+
+              <div className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Save to History</h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Keep a record of which company/role this version was for, so you can find and re-download it later.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Company" value={historyCompany} onChange={setHistoryCompany} placeholder="Acme Corp" />
+                  <Field label="Role" value={historyRole} onChange={setHistoryRole} placeholder="Senior Software Engineer" />
+                </div>
+                {historyError && <p className="text-red-500 dark:text-red-400 text-sm">{historyError}</p>}
+                {historySaved && <p className="text-green-600 dark:text-green-400 text-sm">Saved ✓</p>}
+                <button
+                  onClick={handleSaveToHistory}
+                  disabled={historySaving || !historyCompany.trim() || !historyRole.trim()}
+                  className="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:opacity-50 text-slate-900 dark:text-white text-sm font-medium rounded-lg"
+                >
+                  {historySaving ? "Saving..." : "Save to History"}
+                </button>
+              </div>
+
               <div className="flex justify-between">
                 <button onClick={() => setStep(3)} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">← Change template</button>
                 <button
@@ -1107,6 +1423,117 @@ export default function ResumePage() {
               >
                 Edit resume based on feedback →
               </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Upskill ────────────────────────────────────────────────────────── */}
+      {activeTab === "upskill" && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-xl font-semibold mb-1">Skill Gap & Learning Plan</h2>
+            <p className="text-slate-600 dark:text-slate-400 text-sm">
+              Paste a job description for a targeted gap analysis, or leave it blank to analyze against your recently scored job matches.
+            </p>
+          </div>
+
+          <textarea
+            value={upskillJobDesc}
+            onChange={(e) => setUpskillJobDesc(e.target.value)}
+            rows={6}
+            placeholder="Paste a job description here (optional)..."
+            className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
+          />
+
+          {upskillError && (
+            <div className="p-3 bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 rounded text-red-700 dark:text-red-300 text-sm">{upskillError}</div>
+          )}
+
+          <button
+            onClick={handleUpskill}
+            disabled={upskilling}
+            className="px-6 py-2.5 bg-brand hover:bg-brand/90 disabled:opacity-50 text-white text-sm font-medium rounded-lg w-full"
+          >
+            {upskilling ? "Analyzing gaps..." : "Analyze gaps →"}
+          </button>
+
+          {upskillResult && (
+            <div className="space-y-4">
+              <div className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+                <p className="text-sm text-slate-700 dark:text-slate-300">{upskillResult.summary}</p>
+              </div>
+              {upskillResult.gaps.map((gap, i) => (
+                <div key={i} className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-slate-900 dark:text-white">{gap.skill}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      gap.priority === "high" ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300"
+                      : gap.priority === "medium" ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+                      : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
+                    }`}>{gap.priority}</span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">{gap.why}</p>
+                  <p className="text-xs text-slate-500">~{gap.estimated_hours}h · {gap.resources.join(", ")}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── CV History ─────────────────────────────────────────────────────── */}
+      {activeTab === "history" && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-xl font-semibold mb-1">CV History</h2>
+            <p className="text-slate-600 dark:text-slate-400 text-sm">
+              Every version you've saved — by company and role — so you can find and re-download it later.
+            </p>
+          </div>
+
+          {historyListError && (
+            <div className="p-3 bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 rounded text-red-700 dark:text-red-300 text-sm">{historyListError}</div>
+          )}
+
+          {historyLoading ? (
+            <p className="text-slate-600 dark:text-slate-400 text-sm">Loading…</p>
+          ) : cvHistory.length === 0 ? (
+            <div className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400 text-sm">
+              No saved versions yet. Tailor a CV and use &quot;Save to History&quot; on the download screen.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {cvHistory.map((entry) => (
+                <div
+                  key={entry.created_at}
+                  className="flex items-center justify-between gap-3 bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-4"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-900 dark:text-white truncate">{entry.role} — {entry.company}</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                      {new Date(entry.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                      {" · "}{TEMPLATES.find((t) => t.id === entry.template)?.label ?? entry.template}
+                      {entry.language && entry.language !== "Original" ? ` · ${entry.language}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <button
+                      onClick={() => handleDownloadHistoryEntry(entry)}
+                      disabled={downloadingEntry === entry.created_at}
+                      className="text-xs text-brand hover:underline disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {downloadingEntry === entry.created_at ? "Downloading..." : "Download"}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteHistoryEntry(entry.created_at)}
+                      className="text-xs text-red-500 dark:text-red-400 hover:underline whitespace-nowrap"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

@@ -17,6 +17,7 @@ class Config:
     telegram_codes_table: str
     interviews_table: str
     resumes_table: str
+    cv_history_table: str
     telegram_bot_token: str
     anthropic_api_key: str
     jwt_secret: str
@@ -52,6 +53,7 @@ def get_config() -> Config:
         telegram_codes_table=os.environ.get("TELEGRAM_CODES_TABLE", ""),
         interviews_table=os.environ.get("INTERVIEWS_TABLE", ""),
         resumes_table=os.environ.get("RESUMES_TABLE", ""),
+        cv_history_table=os.environ.get("CV_HISTORY_TABLE", ""),
         telegram_bot_token=secrets.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN", ""),
         anthropic_api_key=secrets.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", ""),
         jwt_secret=secrets.get("JWT_SECRET") or os.environ.get("JWT_SECRET", "change-me"),

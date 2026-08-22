@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { api } from "@/lib/api";
 import type { Interview, InterviewStage } from "@/lib/api";
 import { gcalUrl } from "@/lib/gcal";
 
@@ -19,6 +20,9 @@ const ALL_STAGES: InterviewStage[] = [
   "applied", "phone", "technical", "onsite", "offer", "accepted", "rejected", "withdrawn",
 ];
 
+const TERMINAL_STAGES: InterviewStage[] = ["accepted", "rejected", "withdrawn"];
+const STALE_DAYS = 10;
+
 interface Props {
   interview: Interview;
   onStageChange: (id: string, stage: InterviewStage) => void;
@@ -29,6 +33,34 @@ interface Props {
 export default function InterviewCard({ interview, onStageChange, onDelete, isDragging }: Props) {
   const [showStageMenu, setShowStageMenu] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [draftingFollowup, setDraftingFollowup] = useState(false);
+  const [followup, setFollowup] = useState<{ subject: string; body: string } | null>(null);
+  const [followupError, setFollowupError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const isStale = !TERMINAL_STAGES.includes(interview.stage) &&
+    Date.now() - new Date(interview.updated_at).getTime() > STALE_DAYS * 24 * 60 * 60 * 1000;
+
+  const handleDraftFollowup = async () => {
+    setDraftingFollowup(true);
+    setFollowupError("");
+    setFollowup(null);
+    try {
+      const result = await api.draftFollowup(interview.interview_id);
+      setFollowup(result);
+    } catch (e: unknown) {
+      setFollowupError(e instanceof Error ? e.message : "Could not draft follow-up");
+    } finally {
+      setDraftingFollowup(false);
+    }
+  };
+
+  const handleCopyFollowup = () => {
+    if (!followup) return;
+    navigator.clipboard.writeText(`Subject: ${followup.subject}\n\n${followup.body}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const scheduledDate = interview.scheduled_at
     ? new Date(interview.scheduled_at).toLocaleString("en-US", {
@@ -141,6 +173,17 @@ export default function InterviewCard({ interview, onStageChange, onDelete, isDr
           </a>
         )}
 
+        {isStale && (
+          <button
+            onClick={handleDraftFollowup}
+            disabled={draftingFollowup}
+            className="text-xs text-amber-600 dark:text-amber-400 hover:underline disabled:opacity-50"
+            title={`No update in ${STALE_DAYS}+ days`}
+          >
+            {draftingFollowup ? "Drafting..." : "✉️ Draft follow-up"}
+          </button>
+        )}
+
         <button
           onClick={handleDelete}
           disabled={deleting}
@@ -149,6 +192,21 @@ export default function InterviewCard({ interview, onStageChange, onDelete, isDr
           ✕
         </button>
       </div>
+
+      {followupError && <p className="text-xs text-red-500 dark:text-red-400">{followupError}</p>}
+
+      {followup && (
+        <div className="border border-slate-300 dark:border-slate-600 rounded-lg p-3 space-y-2 bg-slate-50 dark:bg-slate-900/60">
+          <p className="text-xs font-medium text-slate-800 dark:text-slate-200">{followup.subject}</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap">{followup.body}</p>
+          <button
+            onClick={handleCopyFollowup}
+            className="text-xs text-brand hover:underline"
+          >
+            {copied ? "Copied ✓" : "Copy"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

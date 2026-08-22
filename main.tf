@@ -134,6 +134,21 @@ resource "aws_dynamodb_table" "resumes" {
   }
 }
 
+resource "aws_dynamodb_table" "cv_history" {
+  name         = "${local.prefix}-cv-history"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+  range_key    = "created_at"
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "created_at"
+    type = "S"
+  }
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # IAM
 # ─────────────────────────────────────────────────────────────────────────────
@@ -171,6 +186,7 @@ resource "aws_iam_role_policy" "app_policy" {
           aws_dynamodb_table.telegram_codes.arn,
           aws_dynamodb_table.interviews.arn,
           aws_dynamodb_table.resumes.arn,
+          aws_dynamodb_table.cv_history.arn,
         ]
       },
       {
@@ -218,6 +234,7 @@ resource "aws_lambda_function" "api" {
       TELEGRAM_CODES_TABLE    = aws_dynamodb_table.telegram_codes.name
       INTERVIEWS_TABLE        = aws_dynamodb_table.interviews.name
       RESUMES_TABLE           = aws_dynamodb_table.resumes.name
+      CV_HISTORY_TABLE        = aws_dynamodb_table.cv_history.name
     }
   }
 }

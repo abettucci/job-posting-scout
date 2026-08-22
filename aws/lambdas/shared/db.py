@@ -39,6 +39,7 @@ class DynamoDBClient:
         telegram_codes_table: str,
         interviews_table: str = "",
         resumes_table: str = "",
+        cv_history_table: str = "",
         region: str = "us-east-1",
     ):
         db = boto3.resource("dynamodb", region_name=region)
@@ -49,6 +50,7 @@ class DynamoDBClient:
         self.telegram_codes = db.Table(telegram_codes_table)
         self.interviews = db.Table(interviews_table) if interviews_table else None
         self.resumes = db.Table(resumes_table) if resumes_table else None
+        self.cv_history = db.Table(cv_history_table) if cv_history_table else None
 
     # ── Users ──────────────────────────────────────────────────────────────
 
@@ -270,6 +272,17 @@ class DynamoDBClient:
             logger.error(f"get_user_interviews error: {e}")
             return []
 
+    def get_interview(self, user_id: str, interview_id: str) -> Optional[Dict]:
+        if not self.interviews:
+            return None
+        try:
+            resp = self.interviews.get_item(Key={"user_id": user_id, "interview_id": interview_id})
+            item = resp.get("Item")
+            return _from_decimal(item) if item else None
+        except Exception as e:
+            logger.error(f"get_interview error: {e}")
+            return None
+
     def create_interview(self, interview: Dict) -> bool:
         if not self.interviews:
             return False
@@ -331,4 +344,50 @@ class DynamoDBClient:
             return True
         except Exception as e:
             logger.error(f"save_resume error: {e}")
+            return False
+
+    # ── CV History ────────────────────────────────────────────────────────────
+
+    def save_cv_history(self, entry: Dict) -> bool:
+        if not self.cv_history:
+            return False
+        try:
+            self.cv_history.put_item(Item=_to_decimal(entry))
+            return True
+        except Exception as e:
+            logger.error(f"save_cv_history error: {e}")
+            return False
+
+    def get_user_cv_history(self, user_id: str) -> List[Dict]:
+        if not self.cv_history:
+            return []
+        try:
+            resp = self.cv_history.query(
+                KeyConditionExpression=Key("user_id").eq(user_id),
+                ScanIndexForward=False,
+            )
+            return [_from_decimal(item) for item in resp.get("Items", [])]
+        except Exception as e:
+            logger.error(f"get_user_cv_history error: {e}")
+            return []
+
+    def get_cv_history_entry(self, user_id: str, created_at: str) -> Optional[Dict]:
+        if not self.cv_history:
+            return None
+        try:
+            resp = self.cv_history.get_item(Key={"user_id": user_id, "created_at": created_at})
+            item = resp.get("Item")
+            return _from_decimal(item) if item else None
+        except Exception as e:
+            logger.error(f"get_cv_history_entry error: {e}")
+            return None
+
+    def delete_cv_history(self, user_id: str, created_at: str) -> bool:
+        if not self.cv_history:
+            return False
+        try:
+            self.cv_history.delete_item(Key={"user_id": user_id, "created_at": created_at})
+            return True
+        except Exception as e:
+            logger.error(f"delete_cv_history error: {e}")
             return False

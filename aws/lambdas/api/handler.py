@@ -33,6 +33,7 @@ _db = DynamoDBClient(
     telegram_codes_table=_cfg.telegram_codes_table,
     interviews_table=_cfg.interviews_table,
     resumes_table=_cfg.resumes_table,
+    cv_history_table=_cfg.cv_history_table,
     region=_cfg.region,
 )
 get_current_user = make_get_current_user(_db, _cfg.jwt_secret)
@@ -56,7 +57,7 @@ app.include_router(searches.make_router(_db, get_current_user))
 app.include_router(profile.make_router(_db, get_current_user))
 app.include_router(telegram_link.make_router(_db, get_current_user))
 app.include_router(jobs.make_router(_db, get_current_user))
-app.include_router(interviews.make_router(_db, get_current_user))
+app.include_router(interviews.make_router(_db, _cfg, get_current_user))
 app.include_router(resume.make_router(_db, _cfg, get_current_user))
 
 
