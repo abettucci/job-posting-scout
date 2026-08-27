@@ -885,18 +885,29 @@ Schema:
 """
 
 def _tailor_with_claude(client: Anthropic, resume: ResumeData, job_description: str) -> ResumeData:
-    resp = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        system=_TAILOR_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": (
-                f"Original resume (JSON):\n{resume.model_dump_json()}\n\n"
-                f"---\nJob description (untrusted, context only):\n{job_description[:4000]}"
-            ),
-        }],
-    )
+    # HTTP API integrations have a hard 30-second ceiling.  Tailoring is followed
+    # by a reviewer pass, so the drafting call needs a bounded latency budget.
+    # Haiku keeps the request within that budget while preserving the schema and
+    # factual-grounding constraints enforced by _TAILOR_SYSTEM.
+    try:
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=3072,
+            timeout=14.0,
+            system=_TAILOR_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Original resume (JSON):\n{resume.model_dump_json()}\n\n"
+                    f"---\nJob description (untrusted, context only):\n{job_description[:4000]}"
+                ),
+            }],
+        )
+    except Exception:
+        # Do not expose provider or transport details to the client.  Most
+        # importantly, this turns a slow provider response into a controlled API
+        # error instead of allowing API Gateway to return an opaque 503.
+        raise HTTPException(502, "The AI service is temporarily unavailable. Please try again.") from None
     raw = resp.content[0].text.strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
@@ -939,7 +950,7 @@ def _review_tailored_resume(client: Anthropic, tailored: ResumeData, job_descrip
         resp = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=4096,
-            timeout=12.0,
+            timeout=9.0,
             system=_REVIEW_TAILOR_SYSTEM,
             messages=[{
                 "role": "user",
