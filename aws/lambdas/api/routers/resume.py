@@ -1201,6 +1201,11 @@ def _upskill_with_claude(client: Anthropic, resume: ResumeData, context: str) ->
 def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
     router = APIRouter(prefix="/resume", tags=["resume"])
     _anthropic = Anthropic(api_key=cfg.anthropic_api_key)
+    # Tailor has a 30-second API Gateway ceiling.  The Anthropic SDK retries
+    # transient failures by default, which can multiply a bounded per-attempt
+    # timeout beyond that ceiling. Keep retries enabled for the other tools, but
+    # use a no-retry client for the latency-sensitive tailor flow.
+    _tailor_anthropic = Anthropic(api_key=cfg.anthropic_api_key, max_retries=0)
 
     @router.post("/parse")
     async def parse_resume(
@@ -1346,8 +1351,8 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
 
         job_description = _resolve_job_description(db, user["user_id"], body.job_description, body.job_id)
 
-        tailored = _tailor_with_claude(_anthropic, resume, job_description)
-        tailored = _review_tailored_resume(_anthropic, tailored, job_description)
+        tailored = _tailor_with_claude(_tailor_anthropic, resume, job_description)
+        tailored = _review_tailored_resume(_tailor_anthropic, tailored, job_description)
         return tailored.model_dump()
 
     @router.post("/translate")
