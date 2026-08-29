@@ -133,6 +133,8 @@ export const api = {
   expandProfile: () => req<ExpandResult>("/resume/expand", { method: "POST" }),
   upskill: (body: { job_description?: string; job_id?: string }) =>
     req<UpskillResult>("/resume/upskill", { method: "POST", body: JSON.stringify(body) }),
+  answerCareerQuestion: (body: { question: string; job_description?: string; job_id?: string }) =>
+    req<{ answer: string }>("/resume/career-answer", { method: "POST", body: JSON.stringify(body) }),
   tailorResume: (body: { job_description?: string; job_id?: string }) =>
     req<ResumeData>("/resume/tailor", { method: "POST", body: JSON.stringify(body) }),
   translateResume: (language: string) =>

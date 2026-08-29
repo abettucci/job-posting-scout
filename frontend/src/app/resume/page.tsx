@@ -157,7 +157,7 @@ function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = "builder" | "tailor" | "cover" | "checker" | "upskill" | "history";
+type Tab = "builder" | "tailor" | "cover" | "checker" | "prep" | "upskill" | "history";
 
 export default function ResumePage() {
   const { user } = useAuth();
@@ -218,6 +218,13 @@ export default function ResumePage() {
   const [upskilling, setUpskilling] = useState(false);
   const [upskillResult, setUpskillResult] = useState<UpskillResult | null>(null);
   const [upskillError, setUpskillError] = useState("");
+
+  // Interview-prep answer state
+  const [careerQuestion, setCareerQuestion] = useState("");
+  const [careerJobDesc, setCareerJobDesc] = useState("");
+  const [careerAnswer, setCareerAnswer] = useState("");
+  const [careerAnswering, setCareerAnswering] = useState(false);
+  const [careerAnswerError, setCareerAnswerError] = useState("");
 
   // CV History state
   const [historyCompany, setHistoryCompany] = useState("");
@@ -323,6 +330,24 @@ export default function ResumePage() {
       setTailorError(e instanceof Error ? e.message : "Could not tailor resume");
     } finally {
       setTailoring(false);
+    }
+  };
+
+  const handleCareerQuestion = async () => {
+    if (!careerQuestion.trim()) return;
+    setCareerAnswering(true);
+    setCareerAnswerError("");
+    setCareerAnswer("");
+    try {
+      const { answer } = await api.answerCareerQuestion({
+        question: careerQuestion.trim(),
+        job_description: careerJobDesc.trim() || undefined,
+      });
+      setCareerAnswer(answer);
+    } catch (e: unknown) {
+      setCareerAnswerError(e instanceof Error ? e.message : "Could not prepare an answer");
+    } finally {
+      setCareerAnswering(false);
     }
   };
 
@@ -614,8 +639,8 @@ export default function ResumePage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       {/* Tab switcher */}
-      <div className="flex gap-1 mb-8 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-lg w-fit">
-        {(["builder", "tailor", "cover", "checker", "upskill", "history"] as Tab[]).map((t) => (
+      <div className="flex flex-wrap gap-1 mb-8 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-lg">
+        {(["builder", "tailor", "cover", "checker", "prep", "upskill", "history"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => { setActiveTab(t); if (t === "history") loadCvHistory(); }}
@@ -623,7 +648,7 @@ export default function ResumePage() {
               activeTab === t ? "bg-brand text-white" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
           >
-            {t === "builder" ? "Resume Builder" : t === "tailor" ? "Tailor CV" : t === "cover" ? "Cover Letter" : t === "checker" ? "Resume Checker" : t === "upskill" ? "Upskill" : "History"}
+            {t === "builder" ? "Resume Builder" : t === "tailor" ? "Tailor CV" : t === "cover" ? "Cover Letter" : t === "checker" ? "Resume Checker" : t === "prep" ? "Interview Prep" : t === "upskill" ? "Upskill" : "History"}
           </button>
         ))}
       </div>
@@ -1423,6 +1448,58 @@ export default function ResumePage() {
               >
                 Edit resume based on feedback →
               </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Interview prep ───────────────────────────────────────────────── */}
+      {activeTab === "prep" && (
+        <div className="space-y-6">
+          <div className="border-l-4 border-brand pl-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand">Answer practice</p>
+            <h2 className="text-xl font-semibold mt-1">Prepare an answer you can actually own</h2>
+            <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">
+              Ask about a scenario, a tool, or an interview topic. The draft uses only your saved resume and flags when it needs a real example from you.
+            </p>
+          </div>
+
+          <div className="space-y-3 bg-slate-100/40 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+            <label className="block text-sm text-slate-700 dark:text-slate-300 font-medium">Your question</label>
+            <textarea
+              value={careerQuestion}
+              onChange={(e) => setCareerQuestion(e.target.value)}
+              rows={4}
+              maxLength={1500}
+              placeholder="Tell me about a time you used Docker to solve a problem."
+              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
+            />
+            <label className="block text-sm text-slate-700 dark:text-slate-300 font-medium">Job description <span className="font-normal text-slate-500">(optional)</span></label>
+            <textarea
+              value={careerJobDesc}
+              onChange={(e) => setCareerJobDesc(e.target.value)}
+              rows={4}
+              maxLength={6000}
+              placeholder="Paste the role if you want the answer to target it."
+              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
+            />
+            <button
+              onClick={handleCareerQuestion}
+              disabled={careerAnswering || careerQuestion.trim().length < 8}
+              className="px-6 py-2.5 bg-brand hover:bg-brand/90 disabled:opacity-50 text-white text-sm font-medium rounded-lg w-full"
+            >
+              {careerAnswering ? "Drafting your answer..." : "Prepare answer →"}
+            </button>
+          </div>
+
+          {careerAnswerError && (
+            <div className="p-3 bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 rounded text-red-700 dark:text-red-300 text-sm">{careerAnswerError}</div>
+          )}
+
+          {careerAnswer && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 mb-3">Practice draft</p>
+              <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-6">{careerAnswer}</p>
             </div>
           )}
         </div>
