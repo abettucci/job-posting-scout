@@ -203,9 +203,13 @@ async def run_scraper(
     region: str,
     secret_name: str = _COOKIES_SECRET_PREFIX,
     max_jobs_per_search: int = 30,
-) -> List[Dict]:
-    """Main entry point — launches browser, manages session, scrapes all URLs."""
-    all_jobs: List[Dict] = []
+) -> Dict[str, List[Dict]]:
+    """Main entry point — launches browser, manages session, scrapes all URLs.
+
+    Returns a {search_url: jobs} mapping (not a flat list) so callers can scope
+    each URL's results to only the users who subscribed to that specific search.
+    """
+    results: Dict[str, List[Dict]] = {}
 
     async with async_playwright() as p:
         _args = [
@@ -246,14 +250,14 @@ async def run_scraper(
             if not ok:
                 logger.error("Authentication failed — aborting scraper")
                 await browser.close()
-                return []
+                return {}
             # Save fresh cookies
             new_cookies = await context.cookies()
             _save_cookies(new_cookies, secret_name, region)
 
         for url in search_urls:
             jobs = await scrape_search(page, url, max_jobs=max_jobs_per_search)
-            all_jobs.extend(jobs)
+            results[url] = jobs
             await _random_delay(3000, 6000)  # pause between searches
 
         # Persist updated cookies
@@ -262,4 +266,4 @@ async def run_scraper(
 
         await browser.close()
 
-    return all_jobs
+    return results

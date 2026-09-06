@@ -1,9 +1,15 @@
 """Scraper Lambda — runs on EventBridge schedule.
 
 Pipeline per user:
-  1. Get all active searches (LinkedIn or ATS source)
+  1. Get all active searches (LinkedIn, ATS, aggregator, or multi_board source)
   2. LinkedIn: scrape via Playwright (shared browser session)
-     ATS: fetch directly from public API (Greenhouse, Lever, Ashby, Workable, SmartRecruiters)
+     ATS: fetch directly from public API, one company per search (Greenhouse,
+          Lever, Ashby, Workable, SmartRecruiters)
+     Aggregator: fetch directly from public API, global feed filtered by
+          keywords (RemoteOK, WorkingNomads, Remotive, Arbeitnow)
+     Multi-board: one profile-shaped search (job_title + seniority) fanned out
+          into an auto-built LinkedIn URL plus a keyword search on every
+          aggregator above — see "Multi-board fan-out" below
   3. Dedup against DynamoDB per user
   4. Score new jobs with Claude Haiku against user profile
   5. Notify via Telegram if score >= threshold
@@ -19,6 +25,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
+from urllib.parse import urlencode
 
 _SHARED_LAMBDA = str(Path(__file__).resolve().parent / "shared")
 _SHARED_LOCAL = str(Path(__file__).resolve().parent.parent / "shared")
@@ -30,6 +37,7 @@ from config import get_config
 from db import DynamoDBClient
 from telegram import TelegramClient, format_job_notification
 from scorer import score_job
+from seniority import SENIORITY_TO_LINKEDIN_F_E
 
 from anthropic import Anthropic
 from linkedin import run_scraper
@@ -60,6 +68,56 @@ async def _fetch_ats(source: str, slug: str, label: str, keywords: str, location
         logger.warning(f"Unknown ATS source: {source}")
         return []
     return await fetch_jobs(slug=slug, company_name=label, keywords=keywords, location_filter=location_filter)
+
+
+# ── Aggregator provider dispatch ──────────────────────────────────────────────
+# Unlike ATS sources (one company board per slug), aggregators are global job
+# feeds — a single fetch returns postings from many companies, so there is no
+# slug to key on. Keywords act as the primary filter to keep volume sane.
+
+_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow"}
+
+
+async def _fetch_aggregator(source: str, keywords: str, location_filter: str) -> List[Dict]:
+    """Dispatch to the appropriate aggregator provider and return normalized job dicts."""
+    if source == "remoteok":
+        from providers.remoteok import fetch_jobs
+    elif source == "workingnomads":
+        from providers.workingnomads import fetch_jobs
+    elif source == "remotive":
+        from providers.remotive import fetch_jobs
+    elif source == "arbeitnow":
+        from providers.arbeitnow import fetch_jobs
+    else:
+        logger.warning(f"Unknown aggregator source: {source}")
+        return []
+    return await fetch_jobs(keywords=keywords, location_filter=location_filter)
+
+
+# ── Multi-board fan-out ───────────────────────────────────────────────────────
+# A multi_board search has no source-specific plumbing of its own: it expands
+# into one LinkedIn URL (built from job_title/seniority/location) plus one
+# keyword search per aggregator, and rides the existing LinkedIn/aggregator
+# fetch paths above unchanged. Seniority is only applied to LinkedIn, which has
+# a native "Experience level" filter (f_E) — RemoteOK/WorkingNomads/Remotive/
+# Arbeitnow have no structured seniority field, and keyword_match's OR-across-
+# comma semantics would make appending it as a keyword widen the match instead
+# of narrowing it (e.g. "python developer, senior" matches either term, not
+# both), so it is deliberately left out of the aggregator keyword string.
+# Company size is not applied anywhere: none of these sources expose it as a
+# queryable filter without a paid third-party company-database lookup.
+
+_MULTI_BOARD_SOURCE = "multi_board"
+
+
+def _build_linkedin_url(job_title: str, seniority: str, location_filter: str) -> str:
+    params = {"keywords": job_title}
+    if location_filter:
+        params["location"] = location_filter
+    f_e = SENIORITY_TO_LINKEDIN_F_E.get(seniority)
+    if f_e:
+        params["f_E"] = f_e
+    return "https://www.linkedin.com/jobs/search/?" + urlencode(params)
 
 
 # ── Lambda entry point ────────────────────────────────────────────────────────
@@ -97,6 +155,10 @@ async def _main():
     # Deduplicates identical ATS searches across users (shared fetch).
     ats_key_to_info: Dict[Tuple, Dict] = {}
 
+    # Aggregator: { (source, keywords, location_filter): {label, users} }
+    # Deduplicates identical aggregator searches across users (shared fetch).
+    aggregator_key_to_info: Dict[Tuple, Dict] = {}
+
     for user in users:
         searches = db.get_active_searches(user["user_id"])
         for s in searches:
@@ -115,19 +177,49 @@ async def _main():
                     ats_key_to_info[key] = {"label": s.get("label", slug), "users": []}
                 if user not in ats_key_to_info[key]["users"]:
                     ats_key_to_info[key]["users"].append(user)
+            elif source in _AGGREGATOR_SOURCES:
+                keywords = s.get("keywords", "").strip()
+                if not keywords:
+                    logger.warning(f"Aggregator search {s.get('search_id')} has no keywords — skipping")
+                    continue
+                key = (source, keywords, s.get("location_filter", ""))
+                if key not in aggregator_key_to_info:
+                    aggregator_key_to_info[key] = {"label": s.get("label", source), "users": []}
+                if user not in aggregator_key_to_info[key]["users"]:
+                    aggregator_key_to_info[key]["users"].append(user)
+            elif source == _MULTI_BOARD_SOURCE:
+                job_title = s.get("job_title", "").strip()
+                if not job_title:
+                    logger.warning(f"Multi-board search {s.get('search_id')} has no job_title — skipping")
+                    continue
+                seniority = s.get("seniority", "").strip()
+                location_filter = s.get("location_filter", "")
+
+                # 1) LinkedIn — auto-built URL, folded into the existing LinkedIn flow
+                li_url = _build_linkedin_url(job_title, seniority, location_filter)
+                linkedin_url_to_users.setdefault(li_url, []).append(user)
+
+                # 2) Every aggregator board — folded into the existing aggregator flow
+                for agg_source in _AGGREGATOR_SOURCES:
+                    key = (agg_source, job_title, location_filter)
+                    if key not in aggregator_key_to_info:
+                        aggregator_key_to_info[key] = {"label": s.get("label", job_title), "users": []}
+                    if user not in aggregator_key_to_info[key]["users"]:
+                        aggregator_key_to_info[key]["users"].append(user)
 
     # ── LinkedIn scraping (existing Playwright flow) ──────────────────────────
 
-    linkedin_jobs: List[Dict] = []
+    linkedin_results: Dict[str, List[Dict]] = {}  # url → jobs
     if linkedin_url_to_users:
         try:
-            linkedin_jobs = await run_scraper(
+            linkedin_results = await run_scraper(
                 search_urls=list(linkedin_url_to_users.keys()),
                 email=cfg.linkedin_email,
                 password=cfg.linkedin_password,
                 region=cfg.region,
             )
-            logger.info(f"LinkedIn scraper returned {len(linkedin_jobs)} jobs")
+            logger.info(f"LinkedIn scraper returned {sum(len(v) for v in linkedin_results.values())} jobs "
+                        f"across {len(linkedin_results)} searches")
         except Exception as e:
             logger.error(f"LinkedIn scraper failed: {e}")
 
@@ -147,6 +239,23 @@ async def _main():
 
     if ats_key_to_info:
         await asyncio.gather(*[_fetch_and_store(k, v) for k, v in ats_key_to_info.items()])
+
+    # ── Aggregator fetching (concurrent, zero-auth HTTP) ──────────────────────
+
+    aggregator_results: Dict[Tuple, Tuple[List[Dict], List]] = {}  # key → (jobs, users)
+
+    async def _fetch_and_store_aggregator(key: Tuple, info: Dict):
+        source, keywords, location_filter = key
+        try:
+            jobs = await _fetch_aggregator(source, keywords, location_filter)
+            aggregator_results[key] = (jobs, info["users"])
+            logger.info(f"Aggregator {source} ({keywords!r}): {len(jobs)} jobs")
+        except Exception as e:
+            logger.error(f"Aggregator {source} ({keywords!r}) failed: {e}")
+            aggregator_results[key] = ([], info["users"])
+
+    if aggregator_key_to_info:
+        await asyncio.gather(*[_fetch_and_store_aggregator(k, v) for k, v in aggregator_key_to_info.items()])
 
     # ── Process jobs: dedup → score → notify → save ───────────────────────────
 
@@ -183,13 +292,21 @@ async def _main():
 
         _save_scored_job(db, user_id, job, result, notified=should_notify)
 
-    # LinkedIn jobs → all users (existing behavior: shared searches)
-    for job in linkedin_jobs:
-        for user in users:
-            process_job_for_user(user, job)
+    # LinkedIn jobs → only the users who subscribed to that specific search URL
+    for url, jobs in linkedin_results.items():
+        subscribed_users = linkedin_url_to_users.get(url, [])
+        for job in jobs:
+            for user in subscribed_users:
+                process_job_for_user(user, job)
 
     # ATS jobs → only the users who subscribed to that specific search
     for key, (jobs, subscribed_users) in ats_results.items():
+        for job in jobs:
+            for user in subscribed_users:
+                process_job_for_user(user, job)
+
+    # Aggregator jobs → only the users who subscribed to that specific search
+    for key, (jobs, subscribed_users) in aggregator_results.items():
         for job in jobs:
             for user in subscribed_users:
                 process_job_for_user(user, job)

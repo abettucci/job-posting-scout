@@ -16,6 +16,7 @@ import {
   type ExpandResult,
   type ResumeSkills,
   type UpskillResult,
+  type InterviewBrief,
 } from "@/lib/api";
 
 // ── Empty defaults ────────────────────────────────────────────────────────────
@@ -133,6 +134,19 @@ function Field({
   );
 }
 
+function BriefList({ title, items }: { title: string; items: string[] }) {
+  const usefulItems = items.filter(Boolean);
+  if (usefulItems.length === 0) return null;
+  return (
+    <section className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl p-4 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">{title}</p>
+      <ul className="space-y-2">
+        {usefulItems.map((item, index) => <li key={`${title}-${index}`} className="text-sm text-slate-800 dark:text-slate-200 leading-6">{item}</li>)}
+      </ul>
+    </section>
+  );
+}
+
 // ── Score ring ────────────────────────────────────────────────────────────────
 
 function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
@@ -157,7 +171,7 @@ function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = "builder" | "tailor" | "cover" | "checker" | "prep" | "upskill" | "history";
+type Tab = "builder" | "tailor" | "cover" | "checker" | "prep" | "brief" | "upskill" | "history";
 
 export default function ResumePage() {
   const { user } = useAuth();
@@ -226,6 +240,12 @@ export default function ResumePage() {
   const [careerAnswering, setCareerAnswering] = useState(false);
   const [careerAnswerError, setCareerAnswerError] = useState("");
 
+  // Company and industry briefing state
+  const [briefJobId, setBriefJobId] = useState<string | null>(null);
+  const [interviewBrief, setInterviewBrief] = useState<InterviewBrief | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [briefError, setBriefError] = useState("");
+
   // CV History state
   const [historyCompany, setHistoryCompany] = useState("");
   const [historyRole, setHistoryRole] = useState("");
@@ -257,6 +277,7 @@ export default function ResumePage() {
     const params = new URLSearchParams(window.location.search);
     const tailorId = params.get("tailor_job_id");
     const coverId = params.get("cover_job_id");
+    const briefId = params.get("brief_job_id");
     const company = params.get("company");
     const role = params.get("role");
     if (company) setHistoryCompany(company);
@@ -267,6 +288,9 @@ export default function ResumePage() {
     } else if (coverId) {
       setCoverJobId(coverId);
       setActiveTab("cover");
+    } else if (briefId) {
+      setBriefJobId(briefId);
+      setActiveTab("brief");
     }
   }, []);
 
@@ -348,6 +372,19 @@ export default function ResumePage() {
       setCareerAnswerError(e instanceof Error ? e.message : "Could not prepare an answer");
     } finally {
       setCareerAnswering(false);
+    }
+  };
+
+  const handleInterviewBrief = async () => {
+    if (!briefJobId) return;
+    setBriefLoading(true);
+    setBriefError("");
+    try {
+      setInterviewBrief(await api.createInterviewBrief(briefJobId));
+    } catch (e: unknown) {
+      setBriefError(e instanceof Error ? e.message : "Could not prepare the company brief");
+    } finally {
+      setBriefLoading(false);
     }
   };
 
@@ -640,7 +677,7 @@ export default function ResumePage() {
     <div className="max-w-3xl mx-auto px-4 py-8">
       {/* Tab switcher */}
       <div className="flex flex-wrap gap-1 mb-8 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-lg">
-        {(["builder", "tailor", "cover", "checker", "prep", "upskill", "history"] as Tab[]).map((t) => (
+        {(["builder", "tailor", "cover", "checker", "prep", "brief", "upskill", "history"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => { setActiveTab(t); if (t === "history") loadCvHistory(); }}
@@ -648,7 +685,7 @@ export default function ResumePage() {
               activeTab === t ? "bg-brand text-white" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
           >
-            {t === "builder" ? "Resume Builder" : t === "tailor" ? "Tailor CV" : t === "cover" ? "Cover Letter" : t === "checker" ? "Resume Checker" : t === "prep" ? "Interview Prep" : t === "upskill" ? "Upskill" : "History"}
+            {t === "builder" ? "Resume Builder" : t === "tailor" ? "Tailor CV" : t === "cover" ? "Cover Letter" : t === "checker" ? "Resume Checker" : t === "prep" ? "Interview Prep" : t === "brief" ? "Company Brief" : t === "upskill" ? "Upskill" : "History"}
           </button>
         ))}
       </div>
@@ -1500,6 +1537,68 @@ export default function ResumePage() {
             <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl p-5 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 mb-3">Practice draft</p>
               <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-6">{careerAnswer}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Company & industry interview brief ───────────────────────────── */}
+      {activeTab === "brief" && (
+        <div className="space-y-6">
+          <div className="border-l-4 border-brand pl-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand">Free company research</p>
+            <h2 className="text-xl font-semibold mt-1">Company & industry interview brief</h2>
+            <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">
+              Open this from a job card to prepare industry terms, metrics, trends, product context, competitors, business model, and positioning. It uses the job posting plus recent Google News sources and caches the result for seven days.
+            </p>
+          </div>
+
+          {!briefJobId ? (
+            <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-xl text-sm text-slate-600 dark:text-slate-400">
+              Open a job from the Jobs page and choose <span className="font-medium">Company brief</span> to research that specific company.
+            </div>
+          ) : (
+            <button
+              onClick={handleInterviewBrief}
+              disabled={briefLoading}
+              className="px-6 py-2.5 bg-brand hover:bg-brand/90 disabled:opacity-50 text-white text-sm font-medium rounded-lg"
+            >
+              {briefLoading ? "Researching free sources..." : interviewBrief ? "Open cached brief" : "Prepare company brief →"}
+            </button>
+          )}
+
+          {briefError && <div className="p-3 bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 rounded text-red-700 dark:text-red-300 text-sm">{briefError}</div>}
+
+          {interviewBrief && (
+            <div className="space-y-5">
+              <section className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl p-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 mb-2">{interviewBrief.company} · {interviewBrief.role}</p>
+                <p className="text-sm text-slate-800 dark:text-slate-200 leading-6 whitespace-pre-wrap">{interviewBrief.overview}</p>
+              </section>
+              <div className="grid md:grid-cols-2 gap-4">
+                <BriefList title="Industry concepts & terms" items={interviewBrief.industry_concepts.map((item) => `${item.term ?? ""}${item.why_it_matters ? ` — ${item.why_it_matters}` : ""}`)} />
+                <BriefList title="Metrics to know" items={interviewBrief.metrics_to_know.map((item) => `${item.metric ?? ""}${item.why_it_matters ? ` — ${item.why_it_matters}` : ""}`)} />
+                <BriefList title="Recent trends" items={interviewBrief.recent_trends} />
+                <BriefList title="Recent launches" items={interviewBrief.recent_launches.map((item) => `${item.item} — ${item.evidence}`)} />
+                <BriefList title="Pain points addressed" items={interviewBrief.pain_points_addressed} />
+                <BriefList title="Open challenges" items={interviewBrief.open_challenges} />
+                <BriefList title="Competitors" items={interviewBrief.competitors.map((item) => `${item.name ?? ""}${item.basis ? ` — ${item.basis}` : ""}`)} />
+                <BriefList title="Revenue drivers" items={interviewBrief.revenue_drivers} />
+              </div>
+              <section className="grid md:grid-cols-2 gap-4">
+                <div className="bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Business model</p><p className="text-sm leading-6">{interviewBrief.business_model}</p></div>
+                <div className="bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Positioning</p><p className="text-sm leading-6">{interviewBrief.positioning}</p></div>
+              </section>
+              <BriefList title="Interview angles" items={interviewBrief.interview_angles} />
+              {interviewBrief.evidence_gaps.length > 0 && <BriefList title="What to verify before the interview" items={interviewBrief.evidence_gaps} />}
+              {interviewBrief.sources.length > 0 && (
+                <section className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Recent sources</p>
+                  <ul className="space-y-2">
+                    {interviewBrief.sources.map((source) => <li key={source.url} className="text-sm"><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">{source.title}</a><span className="text-slate-500"> · {source.source}{source.published_at ? ` · ${source.published_at}` : ""}</span></li>)}
+                  </ul>
+                </section>
+              )}
             </div>
           )}
         </div>

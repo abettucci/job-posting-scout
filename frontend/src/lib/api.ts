@@ -76,6 +76,8 @@ export const api = {
   // Jobs
   getJobs: (minScore = 0, limit = 20) =>
     req<{ items: Job[]; count: number }>(`/jobs?min_score=${minScore}&limit=${limit}`),
+  createInterviewBrief: (jobId: string) =>
+    req<InterviewBrief>(`/jobs/${encodeURIComponent(jobId)}/interview-brief`, { method: "POST" }),
 
   // Scraper
   runScraper: () => req<{ triggered: boolean }>("/scraper/run", { method: "POST" }),
@@ -163,7 +165,20 @@ export interface User {
   created_at: string;
 }
 
-export type SearchSource = "linkedin" | "greenhouse" | "lever" | "ashby" | "workable" | "smartrecruiters";
+export type SearchSource =
+  | "linkedin"
+  | "greenhouse"
+  | "lever"
+  | "ashby"
+  | "workable"
+  | "smartrecruiters"
+  | "remoteok"
+  | "workingnomads"
+  | "remotive"
+  | "arbeitnow"
+  | "multi_board";
+
+export type Seniority = "" | "internship" | "entry" | "associate" | "mid_senior" | "director" | "executive";
 
 export interface Search {
   search_id: string;
@@ -174,6 +189,8 @@ export interface Search {
   ats_slug: string;
   keywords: string;
   location_filter: string;
+  job_title: string;
+  seniority: Seniority;
   active: boolean;
   created_at: string;
 }
@@ -185,6 +202,8 @@ export interface CreateSearchPayload {
   ats_slug?: string;
   keywords?: string;
   location_filter?: string;
+  job_title?: string;
+  seniority?: Seniority;
 }
 
 export interface Profile {
@@ -229,6 +248,42 @@ export interface Job {
   recommendation: "APPLY" | "MAYBE" | "SKIP";
   notified: boolean;
   timestamp: string;
+}
+
+export interface InterviewBriefSource {
+  title: string;
+  summary: string;
+  published_at: string;
+  source: string;
+  url: string;
+}
+
+export interface InterviewBriefItem {
+  term?: string;
+  metric?: string;
+  name?: string;
+  why_it_matters?: string;
+  basis?: string;
+}
+
+export interface InterviewBrief {
+  company: string;
+  role: string;
+  generated_at: string;
+  overview: string;
+  industry_concepts: InterviewBriefItem[];
+  metrics_to_know: InterviewBriefItem[];
+  recent_trends: string[];
+  recent_launches: { item: string; evidence: string }[];
+  pain_points_addressed: string[];
+  open_challenges: string[];
+  competitors: InterviewBriefItem[];
+  business_model: string;
+  revenue_drivers: string[];
+  positioning: string;
+  interview_angles: string[];
+  evidence_gaps: string[];
+  sources: InterviewBriefSource[];
 }
 
 // ── Resume Builder ────────────────────────────────────────────────────────────

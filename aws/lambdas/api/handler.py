@@ -56,7 +56,7 @@ app.include_router(auth.make_router(_db, _cfg, get_current_user))
 app.include_router(searches.make_router(_db, get_current_user))
 app.include_router(profile.make_router(_db, get_current_user))
 app.include_router(telegram_link.make_router(_db, get_current_user))
-app.include_router(jobs.make_router(_db, get_current_user))
+app.include_router(jobs.make_router(_db, _cfg, get_current_user))
 app.include_router(interviews.make_router(_db, _cfg, get_current_user))
 app.include_router(resume.make_router(_db, _cfg, get_current_user))
 

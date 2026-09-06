@@ -1,15 +1,15 @@
 # LinkedIn Job Scout
 
-Monitors LinkedIn job searches, scores each listing with Claude Haiku against your candidate profile, and notifies you on Telegram. Includes a Kanban-style interview tracker.
+Monitors job searches across LinkedIn, company ATS boards, and remote-job aggregators, scores each listing with Claude Haiku against your candidate profile, and notifies you on Telegram. Includes a Kanban-style interview tracker.
 
 ## How it works
 
 ```
 EventBridge (4×/day, Mon–Fri)
         ↓
-Scraper Lambda (Playwright)
+Scraper Lambda
         ↓
-LinkedIn search URLs → raw job listings
+LinkedIn (Playwright) / ATS APIs / Aggregator APIs → raw job listings
         ↓
 DynamoDB dedup (per user)
         ↓
@@ -18,7 +18,17 @@ Claude Haiku scoring (0–100)
 Telegram notification
 ```
 
-Each user configures their own search URLs and candidate profile (must-have skills, deal-breakers, preferences). The scraper runs using a single LinkedIn account owned by the service.
+Each user configures their own searches and candidate profile (must-have skills, deal-breakers, preferences). LinkedIn scraping runs using a single LinkedIn account owned by the service; ATS and aggregator sources are fetched from public, unauthenticated APIs.
+
+### Job sources
+
+| Type | Sources | How it works |
+|---|---|---|
+| LinkedIn (specific URL) | LinkedIn | Playwright scrapes a saved search URL you paste yourself — full control over LinkedIn's own filters (time posted, boolean keywords, etc.) |
+| Multi-board (profile search) | LinkedIn + RemoteOK + Working Nomads + Remotive + Arbeitnow | One search — job title, seniority, location — fanned out across all five: a LinkedIn URL is auto-built (seniority maps to LinkedIn's native `f_E` experience-level filter), and the job title is used as the keyword filter on the other four |
+| ATS (per-company) | Greenhouse, Lever, Ashby, Workable, SmartRecruiters | Public API per company slug (e.g. `stripe`), filtered by keywords/location |
+
+Seniority is only a real, structured filter on LinkedIn — none of the four aggregator boards expose a seniority field, so a multi-board search doesn't apply it to them (see `handler.py`'s "Multi-board fan-out" section for why). Company size/type isn't filterable on any source yet; none of them expose it via a public API without a paid company-database lookup.
 
 ## Stack
 
@@ -35,7 +45,7 @@ Each user configures their own search URLs and candidate profile (must-have skil
 
 ## Features
 
-- **Job monitoring** — scrapes your saved LinkedIn search URLs on a schedule and deduplicates across runs
+- **Job monitoring** — scrapes your saved LinkedIn search URLs, tracked ATS company boards, and remote-job aggregators on a schedule, deduplicating across runs
 - **AI scoring** — Claude Haiku returns a 0–100 score, reasons, and a recommendation (APPLY / MAYBE / SKIP) based on your profile
 - **Telegram notifications** — only jobs above your score threshold land in your chat
 - **Multi-user** — each user has their own searches, profile, and Telegram account; <20 users
@@ -53,6 +63,8 @@ linkedin-job-scout/
 │       ├── shared/                # Config, DynamoDB client, auth, scorer, Telegram client
 │       ├── api/                   # FastAPI + Mangum (auth, searches, profile, jobs, interviews)
 │       ├── scraper/               # Playwright scraper + handler
+│       │   └── providers/         # ATS (greenhouse, lever, ashby, workable, smartrecruiters) +
+│       │                          # aggregator (remoteok, workingnomads, remotive, arbeitnow) fetchers
 │       ├── telegram_bot/          # Webhook handler (/start, /status, /pause, /resume)
 │       ├── Dockerfile.api
 │       ├── Dockerfile.scraper     # Includes Chromium

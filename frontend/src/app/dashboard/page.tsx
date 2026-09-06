@@ -124,7 +124,7 @@ export default function DashboardPage() {
             <div className="card text-center py-8">
               <p className="text-slate-600 dark:text-slate-400 text-sm">No searches yet.</p>
               <p className="text-slate-500 text-xs mt-1">
-                Add a LinkedIn Jobs search URL to start monitoring.
+                Add a search — a LinkedIn URL, a multi-board profile search, or a specific company — to start monitoring.
               </p>
             </div>
           ) : (

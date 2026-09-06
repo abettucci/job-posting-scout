@@ -207,6 +207,36 @@ class DynamoDBClient:
             logger.error(f"save_job error: {e}")
             return False
 
+    def get_user_job(self, user_id: str, job_id: str) -> Optional[Dict]:
+        """Look up a job only within the authenticated user's partition."""
+        try:
+            resp = self.jobs.get_item(Key={"user_id": user_id, "job_id": job_id})
+            item = resp.get("Item")
+            return _from_decimal(item) if item else None
+        except Exception as e:
+            logger.error(f"get_user_job error: {e}")
+            return None
+
+    def save_user_job_interview_brief(self, user_id: str, job_id: str, brief: Dict) -> bool:
+        """Cache a generated brief without ever addressing another user's job."""
+        try:
+            self.jobs.update_item(
+                Key={"user_id": user_id, "job_id": job_id},
+                # Guard against creating an item when an unknown ID is supplied.
+                ConditionExpression=Attr("job_id").exists(),
+                UpdateExpression="SET interview_brief = :brief, interview_brief_updated_at = :updated",
+                ExpressionAttributeValues={
+                    ":brief": _to_decimal(brief),
+                    ":updated": datetime.utcnow().isoformat(),
+                },
+            )
+            return True
+        except self.jobs.meta.client.exceptions.ConditionalCheckFailedException:
+            return False
+        except Exception as e:
+            logger.error(f"save_user_job_interview_brief error: {e}")
+            return False
+
     def get_user_jobs(
         self,
         user_id: str,

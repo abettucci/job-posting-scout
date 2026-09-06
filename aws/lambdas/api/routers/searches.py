@@ -8,22 +8,40 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, HttpUrl, field_validator
 
 _ATS_SOURCES = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters"}
+# Aggregators are global job feeds (not company-scoped): no ats_slug, but
+# keywords are required so a subscription doesn't score every job on the feed.
+_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow"}
+# Multi-board: one profile-shaped search (job_title + seniority) fanned out
+# across LinkedIn (auto-built URL) + every aggregator above. See handler.py.
+_MULTI_BOARD_SOURCE = "multi_board"
+# Kept in sync by hand with shared/seniority.py's SENIORITY_LEVELS (same
+# small-constant-duplication pattern already used for the ATS url maps below).
+_SENIORITY_LEVELS = ["internship", "entry", "associate", "mid_senior", "director", "executive"]
 
 
 class SearchCreate(BaseModel):
-    url: Optional[str] = None          # LinkedIn URL; optional for ATS sources
+    url: Optional[str] = None          # LinkedIn URL; optional for ATS/aggregator/multi_board sources
     label: str
-    source: str = "linkedin"           # "linkedin" | ATS name
+    source: str = "linkedin"           # "linkedin" | ATS name | aggregator name | "multi_board"
     ats_slug: str = ""                 # company slug for ATS sources (e.g. "stripe")
-    keywords: str = ""                 # comma-separated keyword filter
+    keywords: str = ""                 # comma-separated keyword filter (required for aggregators)
     location_filter: str = ""         # location filter string
+    job_title: str = ""                # required for multi_board
+    seniority: str = ""                # optional for multi_board; one of SENIORITY_LEVELS
 
     @field_validator("source")
     @classmethod
     def validate_source(cls, v: str) -> str:
-        allowed = {"linkedin"} | _ATS_SOURCES
+        allowed = {"linkedin", _MULTI_BOARD_SOURCE} | _ATS_SOURCES | _AGGREGATOR_SOURCES
         if v not in allowed:
             raise ValueError(f"source must be one of: {sorted(allowed)}")
+        return v
+
+    @field_validator("seniority")
+    @classmethod
+    def validate_seniority(cls, v: str) -> str:
+        if v and v not in _SENIORITY_LEVELS:
+            raise ValueError(f"seniority must be one of: {_SENIORITY_LEVELS}")
         return v
 
     @field_validator("url")
@@ -56,6 +74,24 @@ def make_router(db: Any, get_current_user: Callable) -> APIRouter:
             if not body.url:
                 raise HTTPException(400, "url is required for LinkedIn searches")
             effective_url = str(body.url)
+        elif source == _MULTI_BOARD_SOURCE:
+            if not body.job_title.strip():
+                raise HTTPException(400, "job_title is required for multi-board searches")
+            # No single URL represents a multi-board search — this is a display-only label.
+            effective_url = f"Multi-board search: {body.job_title.strip()}"
+            if body.seniority:
+                effective_url += f" ({body.seniority})"
+        elif source in _AGGREGATOR_SOURCES:
+            if not body.keywords.strip():
+                raise HTTPException(400, f"keywords is required for {source} searches (global feed — needs a filter)")
+            # Canonical site URL for display purposes; the feed itself has no per-search URL.
+            aggregator_url_map = {
+                "remoteok": "https://remoteok.com/",
+                "workingnomads": "https://www.workingnomads.com/jobs",
+                "remotive": "https://remotive.com/remote-jobs",
+                "arbeitnow": "https://www.arbeitnow.com/",
+            }
+            effective_url = body.url or aggregator_url_map.get(source, f"https://{source}.com/")
         else:
             if not body.ats_slug.strip():
                 raise HTTPException(400, f"ats_slug is required for {source} searches")
@@ -79,6 +115,8 @@ def make_router(db: Any, get_current_user: Callable) -> APIRouter:
             "ats_slug": body.ats_slug.strip().lower(),
             "keywords": body.keywords.strip(),
             "location_filter": body.location_filter.strip(),
+            "job_title": body.job_title.strip(),
+            "seniority": body.seniority,
             "active": True,
             "created_at": datetime.utcnow().isoformat(),
         }
