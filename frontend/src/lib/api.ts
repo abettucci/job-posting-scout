@@ -241,6 +241,7 @@ export interface Job {
   location: string;
   url: string;
   description?: string;
+  posted_date: string | null;
   score: number;
   summary: string;
   reasons: string[];

@@ -11,7 +11,7 @@ from typing import Dict, List
 
 import httpx
 
-from ._utils import keyword_match, location_match
+from ._utils import keyword_match, location_match, normalize_posted_date
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,7 @@ async def fetch_jobs(
             desc = strip_html(desc)
         native_id = j.get("id") or ""
         job_id = f"ashby:{slug}:{native_id}"
+        posted_date = normalize_posted_date(j.get("publishedAt"))
 
         if not title or not job_url:
             continue
@@ -82,6 +83,7 @@ async def fetch_jobs(
             "location": loc,
             "url": job_url,
             "description": desc[:6000],
+            "posted_date": posted_date,
         })
 
     logger.info(f"ashby/{slug}: {len(jobs)} jobs (after filters)")

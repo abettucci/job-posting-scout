@@ -13,7 +13,7 @@ from typing import Dict, List
 
 import httpx
 
-from ._utils import keyword_match, location_match, strip_html
+from ._utils import keyword_match, location_match, normalize_posted_date, strip_html
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,7 @@ async def fetch_jobs(keywords: str = "", location_filter: str = "") -> List[Dict
         loc = (j.get("candidate_required_location") or "").strip() or "Remote"
         desc = strip_html(j.get("description") or "")
         job_id = f"remotive:{native_id}"
+        posted_date = normalize_posted_date(j.get("publication_date"))
 
         if not title or not job_url:
             continue
@@ -55,6 +56,7 @@ async def fetch_jobs(keywords: str = "", location_filter: str = "") -> List[Dict
             "location": loc,
             "url": job_url,
             "description": desc[:6000],
+            "posted_date": posted_date,
         })
 
     logger.info(f"remotive: {len(jobs)} jobs (after filters)")

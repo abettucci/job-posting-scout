@@ -8,7 +8,7 @@ from typing import Dict, List
 
 import httpx
 
-from ._utils import keyword_match, location_match, strip_html
+from ._utils import keyword_match, location_match, normalize_posted_date, strip_html
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ async def fetch_jobs(
         content_html = j.get("content") or ""
         desc = strip_html(content_html)
         job_id = f"greenhouse:{slug}:{j['id']}"
+        posted_date = normalize_posted_date(j.get("updated_at"))
 
         if not title or not job_url:
             continue
@@ -60,6 +61,7 @@ async def fetch_jobs(
             "location": loc,
             "url": job_url,
             "description": desc[:6000],
+            "posted_date": posted_date,
         })
 
     logger.info(f"greenhouse/{slug}: {len(jobs)} jobs (after filters)")

@@ -17,7 +17,7 @@ const EMPTY_PROFILE: Profile = {
 };
 
 export default function SettingsPage() {
-  const { user, loading } = useAuth();
+  const { user, loading, refresh } = useAuth();
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [fetching, setFetching] = useState(true);
@@ -29,7 +29,14 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!user) return;
     api.getProfile().then((p) => {
-      setProfile({ ...EMPTY_PROFILE, ...p, score_threshold: user.score_threshold });
+      // GET /profile already merges score_threshold from the users table (always
+      // fresh, re-fetched per request server-side) — trust it as-is. Overriding it
+      // with the auth context's `user.score_threshold` used the *cached* value from
+      // login/last refresh(), which is exactly what caused the threshold to appear
+      // to "reset" after a save: the save wrote the new value to the DB, but nothing
+      // refreshed the cached `user` object, so this page kept clobbering the correct
+      // fetched value with the stale one.
+      setProfile({ ...EMPTY_PROFILE, ...p });
     }).finally(() => setFetching(false));
   }, [user]);
 
@@ -50,7 +57,7 @@ export default function SettingsPage() {
         ) : (
           <ProfileEditor
             initial={profile ?? EMPTY_PROFILE}
-            onSaved={() => {}}
+            onSaved={() => { refresh(); }}
           />
         )}
       </main>

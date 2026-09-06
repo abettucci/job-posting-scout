@@ -42,10 +42,13 @@ function RecBadge({ rec }: { rec: Job["recommendation"] }) {
 
 export default function JobCard({ job }: Props) {
   const router = useRouter();
-  const date = new Date(job.timestamp).toLocaleDateString("en-US", {
+  const foundDate = new Date(job.timestamp).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
   });
+  const postedDate = job.posted_date
+    ? new Date(job.posted_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : null;
 
   const trackUrl = `/interviews?job_id=${job.job_id}&company=${encodeURIComponent(job.company)}&role=${encodeURIComponent(job.title)}&score=${job.score}&url=${encodeURIComponent(job.url)}`;
 
@@ -86,7 +89,10 @@ export default function JobCard({ job }: Props) {
       )}
 
       <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
-        <span className="text-xs text-slate-500">{date}</span>
+        <div className="flex items-center gap-3 text-xs text-slate-500">
+          {postedDate && <span>Posted {postedDate}</span>}
+          <span>Found {foundDate}</span>
+        </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push(`/resume?tailor_job_id=${job.job_id}&company=${encodeURIComponent(job.company)}&role=${encodeURIComponent(job.title)}`)}
@@ -118,7 +124,7 @@ export default function JobCard({ job }: Props) {
             rel="noopener noreferrer"
             className="text-xs text-brand hover:text-brand-light transition-colors"
           >
-            View on LinkedIn →
+            View job posting →
           </a>
         </div>
       </div>

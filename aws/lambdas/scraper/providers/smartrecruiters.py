@@ -10,7 +10,7 @@ from typing import Dict, List
 
 import httpx
 
-from ._utils import keyword_match, location_match
+from ._utils import keyword_match, location_match, normalize_posted_date
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,7 @@ async def fetch_jobs(
                 loc = "Remote" if remote else ", ".join(p for p in [city, country] if p)
                 native_id = j.get("id") or ""
                 job_id = f"smartrecruiters:{slug}:{native_id}"
+                posted_date = normalize_posted_date(j.get("releasedDate"))
 
                 if not title:
                     continue
@@ -76,6 +77,7 @@ async def fetch_jobs(
                     "location": loc,
                     "url": job_url,
                     "description": "",  # populated later by scorer from title/company
+                    "posted_date": posted_date,
                 })
 
             total = data.get("totalFound", 0)
