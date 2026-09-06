@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Any, Callable, List, Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+# Kept in sync by hand with shared/seniority.py's SENIORITY_LEVELS (same
+# small-constant-duplication pattern used in routers/searches.py).
+_SENIORITY_LEVELS = ["internship", "entry", "associate", "mid_senior", "director", "executive"]
 
 
 class ProfileUpdate(BaseModel):
@@ -12,6 +16,14 @@ class ProfileUpdate(BaseModel):
     deal_breakers: Optional[List[str]] = None
     prefer: Optional[List[str]] = None
     score_threshold: Optional[int] = None
+    seniority: Optional[str] = None  # "" clears the preference; one of _SENIORITY_LEVELS otherwise
+
+    @field_validator("seniority")
+    @classmethod
+    def validate_seniority(cls, v: Optional[str]) -> Optional[str]:
+        if v and v not in _SENIORITY_LEVELS:
+            raise ValueError(f"seniority must be one of: {_SENIORITY_LEVELS}")
+        return v
 
 
 def make_router(db: Any, get_current_user: Callable) -> APIRouter:

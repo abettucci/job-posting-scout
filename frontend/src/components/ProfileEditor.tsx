@@ -1,7 +1,17 @@
 "use client";
 
 import { useState, KeyboardEvent } from "react";
-import { api, Profile } from "@/lib/api";
+import { api, Profile, type Seniority } from "@/lib/api";
+
+const SENIORITY_OPTIONS: { id: Seniority; label: string }[] = [
+  { id: "", label: "No preference" },
+  { id: "internship", label: "Internship" },
+  { id: "entry", label: "Entry level" },
+  { id: "associate", label: "Associate" },
+  { id: "mid_senior", label: "Mid-Senior" },
+  { id: "director", label: "Director" },
+  { id: "executive", label: "Executive" },
+];
 
 interface TagListProps {
   label: string;
@@ -76,7 +86,7 @@ export default function ProfileEditor({ initial, onSaved }: Props) {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
 
-  const set = (key: keyof Profile) => (val: string[] | number) =>
+  const set = (key: keyof Profile) => (val: string[] | number | Seniority) =>
     setProfile((p) => ({ ...p, [key]: val }));
 
   const handleSave = async () => {
@@ -126,6 +136,23 @@ export default function ProfileEditor({ initial, onSaved }: Props) {
         onChange={set("prefer")}
         color="purple"
       />
+
+      <div>
+        <label className="label">Your Seniority</label>
+        <p className="text-xs text-slate-500 mb-2">
+          If set, postings whose own level reads as far off from this (e.g. Entry vs. Director) are
+          automatically filtered out before scoring — a hard filter, not just a scoring hint.
+        </p>
+        <select
+          className="input"
+          value={profile.seniority}
+          onChange={(e) => set("seniority")(e.target.value as Seniority)}
+        >
+          {SENIORITY_OPTIONS.map((o) => (
+            <option key={o.id} value={o.id}>{o.label}</option>
+          ))}
+        </select>
+      </div>
 
       <div>
         <label className="label">Score Threshold</label>

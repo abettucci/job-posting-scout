@@ -14,6 +14,7 @@ const EMPTY_PROFILE: Profile = {
   deal_breakers: [],
   prefer: [],
   score_threshold: 75,
+  seniority: "",
 };
 
 export default function SettingsPage() {

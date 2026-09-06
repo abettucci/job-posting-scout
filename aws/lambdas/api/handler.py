@@ -67,14 +67,23 @@ def health():
 
 
 @app.post("/scraper/run")
-def run_scraper(current_user=Depends(get_current_user)):
+def run_scraper(mode: str = "scrape", current_user=Depends(get_current_user)):
+    """mode="scrape" (default) runs the normal search pipeline; mode="rescore"
+    re-scores this user's already-saved-but-unscored jobs against their current
+    profile instead, without re-fetching from any source. See scraper/handler.py
+    lambda_handler for the dispatch."""
+    if mode not in ("scrape", "rescore"):
+        raise HTTPException(status_code=400, detail="mode must be 'scrape' or 'rescore'")
     scraper_name = os.environ.get("SCRAPER_FUNCTION_NAME", "linkedin-job-scout-prod-scraper")
     try:
         lambda_client = boto3.client("lambda", region_name=_cfg.region)
+        payload: dict = {"mode": mode}
+        if mode == "rescore":
+            payload["user_id"] = current_user["user_id"]
         response = lambda_client.invoke(
             FunctionName=scraper_name,
             InvocationType="Event",  # async — no wait for result
-            Payload=json.dumps({}),
+            Payload=json.dumps(payload),
         )
         status = response.get("StatusCode", 0)
         if status != 202:

@@ -37,7 +37,7 @@ from config import get_config
 from db import DynamoDBClient
 from telegram import TelegramClient, format_job_notification
 from scorer import score_job
-from seniority import SENIORITY_TO_LINKEDIN_F_E
+from seniority import SENIORITY_LEVELS, SENIORITY_TO_LINKEDIN_F_E, extract_requirements
 
 from anthropic import Anthropic
 from linkedin import run_scraper
@@ -120,11 +120,109 @@ def _build_linkedin_url(job_title: str, seniority: str, location_filter: str) ->
     return "https://www.linkedin.com/jobs/search/?" + urlencode(params)
 
 
+# ── Requirement extraction & seniority hard-filter ────────────────────────────
+# Runs for every job regardless of profile, so seniority_level/
+# min_years_experience are always persisted (useful even before a profile
+# exists). The hard-filter only fires when the candidate has declared a
+# seniority preference AND the posting's own title yielded a confident level.
+
+def _enrich_job(job: Dict) -> Dict:
+    extracted = extract_requirements(job.get("title", ""), job.get("description", ""))
+    return {**job, **extracted}
+
+
+def _seniority_mismatch(job: Dict, profile: Dict) -> Dict | None:
+    """Hard-filter check: if the candidate declared a seniority level in their
+    profile and the job's own extracted level is far enough from it, skip
+    Claude entirely and return a synthetic deal-breaker result (same shape as
+    score_job()'s return value). A gap of 2+ ordinal SENIORITY_LEVELS steps
+    (e.g. entry vs. director) is treated as a hard mismatch; adjacent levels
+    (e.g. entry vs. associate) are left for Claude to judge normally, since
+    postings are rarely that precise about level anyway."""
+    candidate_level = profile.get("seniority")
+    job_level = job.get("seniority_level")
+    if not candidate_level or not job_level:
+        return None
+    if candidate_level not in SENIORITY_LEVELS or job_level not in SENIORITY_LEVELS:
+        return None
+    gap = abs(SENIORITY_LEVELS.index(candidate_level) - SENIORITY_LEVELS.index(job_level))
+    if gap < 2:
+        return None
+    return {
+        "score": 0,
+        "deal_breaker": True,
+        "reasons": [f"❌ Seniority mismatch: posting reads as '{job_level}', your profile is '{candidate_level}'"],
+        "summary": "Filtered automatically before scoring — seniority gap too large.",
+        "recommendation": "SKIP",
+    }
+
+
 # ── Lambda entry point ────────────────────────────────────────────────────────
 
 def lambda_handler(event, context):
-    asyncio.run(_main())
+    mode = (event or {}).get("mode", "scrape")
+    if mode == "rescore":
+        user_id = (event or {}).get("user_id")
+        if not user_id:
+            logger.error("rescore mode requires a user_id")
+            return {"statusCode": 400, "body": "user_id required for rescore"}
+        asyncio.run(_rescore(user_id))
+    else:
+        asyncio.run(_main())
     return {"statusCode": 200, "body": "done"}
+
+
+async def _rescore(user_id: str):
+    """Re-score this user's already-saved jobs that never got a real score
+    (score == 0, saved via _save_unscored — e.g. because their profile was
+    still empty at scrape time). Does not re-fetch from any source: title,
+    company, location, url, description, and posted_date are already in
+    DynamoDB, so this only re-runs the Claude Haiku scoring pass and
+    overwrites those rows in place. Never re-notifies via Telegram — this is
+    a backfill of old jobs, not a "new job found" event."""
+    cfg = get_config()
+    db = DynamoDBClient(
+        users_table=cfg.users_table,
+        searches_table=cfg.searches_table,
+        profiles_table=cfg.profiles_table,
+        jobs_table=cfg.jobs_table,
+        telegram_codes_table=cfg.telegram_codes_table,
+        region=cfg.region,
+    )
+    anthropic = Anthropic(api_key=cfg.anthropic_api_key)
+
+    profile = db.get_profile(user_id)
+    if not profile:
+        logger.warning(f"rescore: user {user_id} has no profile — nothing to score against")
+        return
+
+    unscored: List[Dict] = []
+    last_key = None
+    while True:
+        items, last_key = db.get_user_jobs(user_id=user_id, min_score=0, limit=100, last_key=last_key)
+        unscored.extend(j for j in items if j.get("score", 0) == 0)
+        if not last_key:
+            break
+
+    logger.info(f"rescore: {len(unscored)} unscored jobs found for user {user_id}")
+
+    scored = 0
+    for job in unscored:
+        job = _enrich_job(job)
+
+        mismatch = _seniority_mismatch(job, profile)
+        if mismatch:
+            _save_scored_job(db, user_id, job, mismatch, notified=False)
+            continue
+
+        if scored >= _MAX_SCORER_CALLS:
+            logger.warning(f"rescore: Claude cap ({_MAX_SCORER_CALLS}) reached, stopping early")
+            break
+        result = score_job(anthropic, job, profile)
+        scored += 1
+        _save_scored_job(db, user_id, job, result, notified=False)
+
+    logger.info(f"rescore: done. scored {scored}/{len(unscored)} jobs for user {user_id}.")
 
 
 async def _main():
@@ -269,9 +367,16 @@ async def _main():
         if not job_id or db.is_job_seen(user_id, job_id):
             return
 
+        job = _enrich_job(job)
+
         profile = db.get_profile(user_id) or {}
         if not profile:
             _save_unscored(db, user_id, job)
+            return
+
+        mismatch = _seniority_mismatch(job, profile)
+        if mismatch:
+            _save_scored_job(db, user_id, job, mismatch, notified=False)
             return
 
         if scorer_calls >= _MAX_SCORER_CALLS:
@@ -324,6 +429,8 @@ def _save_scored_job(db: DynamoDBClient, user_id: str, job: dict, result: dict, 
         "url": job.get("url", ""),
         "description": job.get("description", "")[:6000],
         "posted_date": job.get("posted_date"),
+        "seniority_level": job.get("seniority_level"),
+        "min_years_experience": job.get("min_years_experience"),
         "score": result["score"],
         "summary": result.get("summary", ""),
         "reasons": result.get("reasons", []),
@@ -344,6 +451,8 @@ def _save_unscored(db: DynamoDBClient, user_id: str, job: dict):
         "url": job.get("url", ""),
         "description": job.get("description", "")[:6000],
         "posted_date": job.get("posted_date"),
+        "seniority_level": job.get("seniority_level"),
+        "min_years_experience": job.get("min_years_experience"),
         "score": 0,
         "summary": "",
         "reasons": [],

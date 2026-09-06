@@ -81,6 +81,7 @@ export const api = {
 
   // Scraper
   runScraper: () => req<{ triggered: boolean }>("/scraper/run", { method: "POST" }),
+  rescoreJobs: () => req<{ triggered: boolean }>("/scraper/run?mode=rescore", { method: "POST" }),
 
   // Interviews
   getInterviews: () => req<Interview[]>("/interviews"),
@@ -212,6 +213,7 @@ export interface Profile {
   deal_breakers: string[];
   prefer: string[];
   score_threshold: number;
+  seniority: Seniority;
 }
 
 export type InterviewStage =
@@ -242,6 +244,8 @@ export interface Job {
   url: string;
   description?: string;
   posted_date: string | null;
+  seniority_level: Seniority | null;
+  min_years_experience: number | null;
   score: number;
   summary: string;
   reasons: string[];

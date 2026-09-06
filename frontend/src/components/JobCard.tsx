@@ -26,6 +26,15 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
+const SENIORITY_LABELS: Record<string, string> = {
+  internship: "Internship",
+  entry: "Entry level",
+  associate: "Associate",
+  mid_senior: "Mid-Senior",
+  director: "Director",
+  executive: "Executive",
+};
+
 function RecBadge({ rec }: { rec: Job["recommendation"] }) {
   const styles = {
     APPLY: "bg-emerald-950 text-emerald-300 border-emerald-700",
@@ -67,6 +76,20 @@ export default function JobCard({ job }: Props) {
           <p className="text-sm text-slate-600 dark:text-slate-400">
             {job.company} · {job.location}
           </p>
+          {(job.seniority_level || job.min_years_experience) && (
+            <div className="flex items-center gap-1.5 mt-1">
+              {job.seniority_level && (
+                <span className="tag border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600">
+                  🎯 {SENIORITY_LABELS[job.seniority_level] ?? job.seniority_level}
+                </span>
+              )}
+              {job.min_years_experience && (
+                <span className="tag border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600">
+                  📅 {job.min_years_experience}+ yrs
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <ScoreBadge score={job.score} />
@@ -75,13 +98,25 @@ export default function JobCard({ job }: Props) {
       </div>
 
       {job.reasons.length > 0 && (
-        <ul className="space-y-0.5">
-          {job.reasons.slice(0, 5).map((r, i) => (
-            <li key={i} className="text-sm text-slate-700 dark:text-slate-300">
-              {r}
-            </li>
-          ))}
-        </ul>
+        <div className="flex flex-wrap gap-1.5">
+          {job.reasons.slice(0, 5).map((r, i) => {
+            // scorer.py's prompt always prefixes a reason with ✅ (match) or ❌
+            // (mismatch) against the candidate profile — style each accordingly.
+            const isMatch = r.trim().startsWith("✅");
+            const isMismatch = r.trim().startsWith("❌");
+            const text = r.replace(/^[✅❌]\s*/, "");
+            const style = isMatch
+              ? "bg-emerald-950 text-emerald-300 border-emerald-700"
+              : isMismatch
+              ? "bg-red-950 text-red-300 border-red-700"
+              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600";
+            return (
+              <span key={i} className={`tag border ${style}`}>
+                {text}
+              </span>
+            );
+          })}
+        </div>
       )}
 
       {job.summary && (

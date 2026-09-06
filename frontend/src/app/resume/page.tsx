@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { useRouter } from "next/navigation";
+import Nav from "@/components/Nav";
 import {
   api,
   type ResumeData,
@@ -674,7 +675,9 @@ export default function ResumePage() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
+    <>
+      <Nav />
+      <div className="max-w-3xl mx-auto px-4 py-8">
       {/* Tab switcher */}
       <div className="flex flex-wrap gap-1 mb-8 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-lg">
         {(["builder", "tailor", "cover", "checker", "prep", "brief", "upskill", "history"] as Tab[]).map((t) => (
@@ -1714,6 +1717,7 @@ export default function ResumePage() {
           )}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
