@@ -16,7 +16,7 @@ _AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "co
 _MULTI_BOARD_SOURCE = "multi_board"
 # Kept in sync by hand with shared/seniority.py's SENIORITY_LEVELS (same
 # small-constant-duplication pattern already used for the ATS url maps below).
-_SENIORITY_LEVELS = ["internship", "entry", "associate", "mid_senior", "director", "executive"]
+_SENIORITY_LEVELS = ["internship", "entry", "associate", "mid", "senior", "staff", "director", "executive"]
 
 
 class SearchCreate(BaseModel):

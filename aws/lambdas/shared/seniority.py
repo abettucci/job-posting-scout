@@ -12,13 +12,21 @@ from __future__ import annotations
 import re
 from typing import Dict, Optional
 
-# Ordered for display in a dropdown, junior → senior. LinkedIn's own "Mid-Senior
-# level" bucket deliberately covers both mid-level and IC "Senior" titles —
-# Director/Executive are reserved for actual management/exec titles, not senior
-# ICs — and extract_requirements() below follows that same convention.
-SENIORITY_LEVELS = ["internship", "entry", "associate", "mid_senior", "director", "executive"]
+# Ordered for display in a dropdown, junior → senior. Older versions of this
+# app copied LinkedIn's own "Mid-Senior level" f_E bucket, which lumps
+# mid-level, "Senior", "Lead", "Staff", and "Principal" ICs together — that
+# made a "Mid-Senior" filter next to useless (a plain "Senior X Developer"
+# title would show up under a filter that visually reads "Mid-Senior", which
+# users reasonably read as excluding plain "Senior"). "mid"/"senior"/"staff"
+# split that bucket into three explicit levels; Director/Executive remain
+# reserved for actual management/exec titles, not senior ICs.
+SENIORITY_LEVELS = ["internship", "entry", "associate", "mid", "senior", "staff", "director", "executive"]
 
 # LinkedIn Jobs Search "Experience level" filter codes (the f_E query param).
+# LinkedIn itself has no separate "Senior"/"Staff" bucket — its own "Mid-Senior
+# level" filter (f_E=4) is the closest native match for all three of our
+# mid/senior/staff levels, so all three map to the same LinkedIn code; the
+# finer split only exists in our own extraction/filtering, not LinkedIn's.
 # This is the only one of the multi-board sources with a native, structured
 # seniority filter — RemoteOK/WorkingNomads/Remotive/Arbeitnow have no such
 # field, so seniority is not applied to them (see handler.py comment).
@@ -26,21 +34,28 @@ SENIORITY_TO_LINKEDIN_F_E = {
     "internship": "1",
     "entry": "2",
     "associate": "3",
-    "mid_senior": "4",
+    "mid": "4",
+    "senior": "4",
+    "staff": "4",
     "director": "5",
     "executive": "6",
 }
 
-# Ordered most-specific-first so e.g. "Director of Engineering" matches
-# "director" before the broader "mid_senior" patterns get a chance to match on
-# an unrelated "senior" substring elsewhere in the same title.
+# Ordered most-specific-first (first match wins) so e.g. "Director of
+# Engineering" matches "director" before a broader pattern gets a chance, and
+# "Senior Staff Engineer" or "Lead Engineer" resolve to "staff" (the more
+# senior IC tier) rather than "senior". A bare "Mid-Senior" title (still used
+# by some postings verbatim) resolves to "senior", since it explicitly names
+# that tier — see the "senior" pattern below.
 _SENIORITY_PATTERNS = [
     ("executive", re.compile(r"\b(chief\s+\w+\s+officer|cto|ceo|cfo|coo|president)\b", re.I)),
     ("director", re.compile(r"\b(director|vp|vice\s+president|head\s+of)\b", re.I)),
     ("internship", re.compile(r"\b(intern(ship)?|trainee|new\s+grad|graduate\s+program)\b", re.I)),
     ("entry", re.compile(r"\b(entry[\s-]?level|junior|jr\.?)\b", re.I)),
     ("associate", re.compile(r"\bassociate\b", re.I)),
-    ("mid_senior", re.compile(r"\b(senior|sr\.?|semi[\s-]?senior|mid[\s-]?level|mid[\s-]?senior|lead|staff|principal)\b", re.I)),
+    ("staff", re.compile(r"\b(staff|principal|lead)\b", re.I)),
+    ("senior", re.compile(r"\b(senior|sr\.?|semi[\s-]?senior|mid[\s-]?senior)\b", re.I)),
+    ("mid", re.compile(r"\bmid[\s-]?level\b", re.I)),
 ]
 
 # "3+ years", "3-5 years", "minimum of 3 years experience", etc. Best-effort —

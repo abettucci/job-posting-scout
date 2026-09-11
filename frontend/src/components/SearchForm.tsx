@@ -13,7 +13,9 @@ const SENIORITY_OPTIONS: { id: Seniority; label: string }[] = [
   { id: "internship", label: "Internship" },
   { id: "entry", label: "Entry level" },
   { id: "associate", label: "Associate" },
-  { id: "mid_senior", label: "Mid-Senior" },
+  { id: "mid", label: "Mid-level" },
+  { id: "senior", label: "Senior" },
+  { id: "staff", label: "Staff/Principal" },
   { id: "director", label: "Director" },
   { id: "executive", label: "Executive" },
 ];

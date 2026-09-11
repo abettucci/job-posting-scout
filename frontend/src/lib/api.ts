@@ -181,7 +181,7 @@ export type SearchSource =
   | "onlinejobs"
   | "multi_board";
 
-export type Seniority = "" | "internship" | "entry" | "associate" | "mid_senior" | "director" | "executive";
+export type Seniority = "" | "internship" | "entry" | "associate" | "mid" | "senior" | "staff" | "director" | "executive";
 
 export interface Search {
   search_id: string;

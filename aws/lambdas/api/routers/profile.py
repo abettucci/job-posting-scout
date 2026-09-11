@@ -7,7 +7,7 @@ from pydantic import BaseModel, field_validator
 
 # Kept in sync by hand with shared/seniority.py's SENIORITY_LEVELS (same
 # small-constant-duplication pattern used in routers/searches.py).
-_SENIORITY_LEVELS = ["internship", "entry", "associate", "mid_senior", "director", "executive"]
+_SENIORITY_LEVELS = ["internship", "entry", "associate", "mid", "senior", "staff", "director", "executive"]
 
 
 class ProfileUpdate(BaseModel):

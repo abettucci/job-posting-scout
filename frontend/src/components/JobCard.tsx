@@ -30,7 +30,9 @@ const SENIORITY_LABELS: Record<string, string> = {
   internship: "Internship",
   entry: "Entry level",
   associate: "Associate",
-  mid_senior: "Mid-Senior",
+  mid: "Mid-level",
+  senior: "Senior",
+  staff: "Staff/Principal",
   director: "Director",
   executive: "Executive",
 };
