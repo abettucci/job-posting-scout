@@ -154,6 +154,14 @@ export default function ProfileEditor({ initial, onSaved }: Props) {
         </select>
       </div>
 
+      <TagList
+        label="Eligible Regions"
+        description="Where you can legally/practically work remote from — e.g. Argentina, LATAM, Worldwide. If set, postings that read as remote-but-restricted to somewhere else (e.g. 'Remote — Germany only') are automatically filtered out before scoring, unless one of these words also appears in the posting."
+        items={profile.eligible_regions}
+        onChange={set("eligible_regions")}
+        color="blue"
+      />
+
       <div>
         <label className="label">Score Threshold</label>
         <p className="text-xs text-slate-500 mb-2">

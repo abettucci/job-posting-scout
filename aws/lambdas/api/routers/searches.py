@@ -10,7 +10,7 @@ from pydantic import BaseModel, HttpUrl, field_validator
 _ATS_SOURCES = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters"}
 # Aggregators are global job feeds (not company-scoped): no ats_slug, but
 # keywords are required so a subscription doesn't score every job on the feed.
-_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow"}
+_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs"}
 # Multi-board: one profile-shaped search (job_title + seniority) fanned out
 # across LinkedIn (auto-built URL) + every aggregator above. See handler.py.
 _MULTI_BOARD_SOURCE = "multi_board"
@@ -90,6 +90,8 @@ def make_router(db: Any, get_current_user: Callable) -> APIRouter:
                 "workingnomads": "https://www.workingnomads.com/jobs",
                 "remotive": "https://remotive.com/remote-jobs",
                 "arbeitnow": "https://www.arbeitnow.com/",
+                "compujobs": "https://www.compujobs.co.za/search-jobs/",
+                "onlinejobs": "https://www.onlinejobs.ph/jobseekers/jobsearch",
             }
             effective_url = body.url or aggregator_url_map.get(source, f"https://{source}.com/")
         else:

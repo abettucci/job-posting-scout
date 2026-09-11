@@ -35,6 +35,20 @@ const SENIORITY_LABELS: Record<string, string> = {
   executive: "Executive",
 };
 
+const REGION_SCOPE: Record<string, { icon: string; label: string; style: string }> = {
+  worldwide: { icon: "🌍", label: "Worldwide", style: "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600" },
+  latam: { icon: "🌎", label: "LATAM", style: "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600" },
+  restricted: { icon: "📍", label: "Region restricted", style: "bg-red-950 text-red-300 border-red-700" },
+};
+
+// Labeled "(est.)" everywhere it's shown — this is a regex guess over the
+// posting's own text, never a verified employee count. See CompanySizeHint.
+const COMPANY_SIZE: Record<string, { icon: string; label: string }> = {
+  startup: { icon: "🌱", label: "Startup (est.)" },
+  midsize: { icon: "🏢", label: "Mid-size (est.)" },
+  enterprise: { icon: "🏛️", label: "Enterprise (est.)" },
+};
+
 function RecBadge({ rec }: { rec: Job["recommendation"] }) {
   const styles = {
     APPLY: "bg-emerald-950 text-emerald-300 border-emerald-700",
@@ -76,8 +90,8 @@ export default function JobCard({ job }: Props) {
           <p className="text-sm text-slate-600 dark:text-slate-400">
             {job.company} · {job.location}
           </p>
-          {(job.seniority_level || job.min_years_experience) && (
-            <div className="flex items-center gap-1.5 mt-1">
+          {(job.seniority_level || job.min_years_experience || job.region_scope || job.company_size_hint) && (
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
               {job.seniority_level && (
                 <span className="tag border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600">
                   🎯 {SENIORITY_LABELS[job.seniority_level] ?? job.seniority_level}
@@ -86,6 +100,19 @@ export default function JobCard({ job }: Props) {
               {job.min_years_experience && (
                 <span className="tag border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600">
                   📅 {job.min_years_experience}+ yrs
+                </span>
+              )}
+              {job.region_scope && (
+                <span className={`tag border ${REGION_SCOPE[job.region_scope].style}`}>
+                  {REGION_SCOPE[job.region_scope].icon} {REGION_SCOPE[job.region_scope].label}
+                </span>
+              )}
+              {job.company_size_hint && (
+                <span
+                  title="Estimated from the posting's own text — not a verified employee count"
+                  className="tag border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600"
+                >
+                  {COMPANY_SIZE[job.company_size_hint].icon} {COMPANY_SIZE[job.company_size_hint].label}
                 </span>
               )}
             </div>

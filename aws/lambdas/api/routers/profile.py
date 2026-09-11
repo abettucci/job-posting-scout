@@ -17,6 +17,7 @@ class ProfileUpdate(BaseModel):
     prefer: Optional[List[str]] = None
     score_threshold: Optional[int] = None
     seniority: Optional[str] = None  # "" clears the preference; one of _SENIORITY_LEVELS otherwise
+    eligible_regions: Optional[List[str]] = None  # free text, e.g. ["Argentina", "LATAM", "Worldwide"]
 
     @field_validator("seniority")
     @classmethod

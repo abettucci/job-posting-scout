@@ -29,7 +29,7 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
     id: "multi_board",
     label: "Multi-board (all boards)",
     placeholder: "",
-    help: "One profile-shaped search, fanned out across LinkedIn (auto-built URL) + RemoteOK + Working Nomads + Remotive + Arbeitnow.",
+    help: "One profile-shaped search, fanned out across LinkedIn (auto-built URL) + RemoteOK + Working Nomads + Remotive + Arbeitnow + CompuJobs + OnlineJobs.ph.",
   },
   {
     id: "greenhouse",
@@ -85,9 +85,21 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
     placeholder: "",
     help: "Global jobs feed (EU-focused, remote flag per posting). Requires keywords below.",
   },
+  {
+    id: "compujobs",
+    label: "CompuJobs",
+    placeholder: "",
+    help: "South African jobs board. Requires keywords below. No public API — HTML scraping, so this source may be less reliable than the feed-based ones above.",
+  },
+  {
+    id: "onlinejobs",
+    label: "OnlineJobs.ph",
+    placeholder: "",
+    help: "Philippines remote/VA jobs board. Requires keywords below. Company name and location aren't available from this source (every posting shows as company-less, \"Remote\"). No public API — HTML scraping.",
+  },
 ];
 
-const AGGREGATOR_SOURCES: SearchSource[] = ["remoteok", "workingnomads", "remotive", "arbeitnow"];
+const AGGREGATOR_SOURCES: SearchSource[] = ["remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs"];
 
 export default function SearchForm({ onCreated, onCancel }: Props) {
   const [source, setSource] = useState<SearchSource>("linkedin");

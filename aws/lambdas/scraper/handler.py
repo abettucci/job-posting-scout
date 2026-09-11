@@ -6,7 +6,8 @@ Pipeline per user:
      ATS: fetch directly from public API, one company per search (Greenhouse,
           Lever, Ashby, Workable, SmartRecruiters)
      Aggregator: fetch directly from public API, global feed filtered by
-          keywords (RemoteOK, WorkingNomads, Remotive, Arbeitnow)
+          keywords (RemoteOK, WorkingNomads, Remotive, Arbeitnow), or HTML
+          scraping for sources with no public API (CompuJobs, OnlineJobs.ph)
      Multi-board: one profile-shaped search (job_title + seniority) fanned out
           into an auto-built LinkedIn URL plus a keyword search on every
           aggregator above — see "Multi-board fan-out" below
@@ -22,7 +23,7 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Tuple
 from urllib.parse import urlencode
@@ -37,7 +38,13 @@ from config import get_config
 from db import DynamoDBClient
 from telegram import TelegramClient, format_job_notification
 from scorer import score_job
-from seniority import SENIORITY_LEVELS, SENIORITY_TO_LINKEDIN_F_E, extract_requirements
+from seniority import (
+    SENIORITY_LEVELS,
+    SENIORITY_TO_LINKEDIN_F_E,
+    extract_company_size_hint,
+    extract_region_scope,
+    extract_requirements,
+)
 
 from anthropic import Anthropic
 from linkedin import run_scraper
@@ -75,7 +82,7 @@ async def _fetch_ats(source: str, slug: str, label: str, keywords: str, location
 # feeds — a single fetch returns postings from many companies, so there is no
 # slug to key on. Keywords act as the primary filter to keep volume sane.
 
-_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow"}
+_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs"}
 
 
 async def _fetch_aggregator(source: str, keywords: str, location_filter: str) -> List[Dict]:
@@ -88,6 +95,10 @@ async def _fetch_aggregator(source: str, keywords: str, location_filter: str) ->
         from providers.remotive import fetch_jobs
     elif source == "arbeitnow":
         from providers.arbeitnow import fetch_jobs
+    elif source == "compujobs":
+        from providers.compujobs import fetch_jobs
+    elif source == "onlinejobs":
+        from providers.onlinejobs import fetch_jobs
     else:
         logger.warning(f"Unknown aggregator source: {source}")
         return []
@@ -120,15 +131,17 @@ def _build_linkedin_url(job_title: str, seniority: str, location_filter: str) ->
     return "https://www.linkedin.com/jobs/search/?" + urlencode(params)
 
 
-# ── Requirement extraction & seniority hard-filter ────────────────────────────
+# ── Requirement extraction & hard-filters (seniority, remote region) ─────────
 # Runs for every job regardless of profile, so seniority_level/
-# min_years_experience are always persisted (useful even before a profile
-# exists). The hard-filter only fires when the candidate has declared a
-# seniority preference AND the posting's own title yielded a confident level.
+# min_years_experience/region_scope are always persisted (useful even before a
+# profile exists). Each hard-filter only fires when the candidate has declared
+# the matching preference AND the posting's own text yielded a confident signal.
 
 def _enrich_job(job: Dict) -> Dict:
     extracted = extract_requirements(job.get("title", ""), job.get("description", ""))
-    return {**job, **extracted}
+    region_scope = extract_region_scope(job.get("location", ""), job.get("description", ""))
+    company_size_hint = extract_company_size_hint(job.get("description", ""))
+    return {**job, **extracted, "region_scope": region_scope, "company_size_hint": company_size_hint}
 
 
 def _seniority_mismatch(job: Dict, profile: Dict) -> Dict | None:
@@ -153,6 +166,31 @@ def _seniority_mismatch(job: Dict, profile: Dict) -> Dict | None:
         "deal_breaker": True,
         "reasons": [f"❌ Seniority mismatch: posting reads as '{job_level}', your profile is '{candidate_level}'"],
         "summary": "Filtered automatically before scoring — seniority gap too large.",
+        "recommendation": "SKIP",
+    }
+
+
+def _region_mismatch(job: Dict, profile: Dict) -> Dict | None:
+    """Hard-filter check: if the candidate declared eligible regions and the
+    job's own text confidently names a specific place that isn't among them
+    (e.g. "remote — Germany only" for a candidate who only listed Argentina),
+    skip Claude entirely. A "worldwide" or "latam" job never triggers this —
+    only "restricted" does, and even then only if none of the candidate's
+    declared regions appears anywhere in the job's own location/description
+    text (so adding e.g. "Germany" to the profile later immediately widens
+    what passes, no code change needed). An unclear job (region_scope is None)
+    is never filtered — same "don't penalize missing data" rule as seniority."""
+    eligible = profile.get("eligible_regions") or []
+    if not eligible or job.get("region_scope") != "restricted":
+        return None
+    haystack = f"{job.get('location', '')} {job.get('description', '')}".lower()
+    if any(region.strip().lower() in haystack for region in eligible if region.strip()):
+        return None
+    return {
+        "score": 0,
+        "deal_breaker": True,
+        "reasons": [f"❌ Region restricted: posting doesn't look open to {', '.join(eligible)}"],
+        "summary": "Filtered automatically before scoring — remote region restriction.",
         "recommendation": "SKIP",
     }
 
@@ -210,7 +248,7 @@ async def _rescore(user_id: str):
     for job in unscored:
         job = _enrich_job(job)
 
-        mismatch = _seniority_mismatch(job, profile)
+        mismatch = _seniority_mismatch(job, profile) or _region_mismatch(job, profile)
         if mismatch:
             _save_scored_job(db, user_id, job, mismatch, notified=False)
             continue
@@ -374,7 +412,7 @@ async def _main():
             _save_unscored(db, user_id, job)
             return
 
-        mismatch = _seniority_mismatch(job, profile)
+        mismatch = _seniority_mismatch(job, profile) or _region_mismatch(job, profile)
         if mismatch:
             _save_scored_job(db, user_id, job, mismatch, notified=False)
             return
@@ -431,13 +469,15 @@ def _save_scored_job(db: DynamoDBClient, user_id: str, job: dict, result: dict, 
         "posted_date": job.get("posted_date"),
         "seniority_level": job.get("seniority_level"),
         "min_years_experience": job.get("min_years_experience"),
+        "region_scope": job.get("region_scope"),
+        "company_size_hint": job.get("company_size_hint"),
         "score": result["score"],
         "summary": result.get("summary", ""),
         "reasons": result.get("reasons", []),
         "deal_breaker": result.get("deal_breaker", False),
         "recommendation": result.get("recommendation", "MAYBE"),
         "notified": notified,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
 
@@ -453,11 +493,13 @@ def _save_unscored(db: DynamoDBClient, user_id: str, job: dict):
         "posted_date": job.get("posted_date"),
         "seniority_level": job.get("seniority_level"),
         "min_years_experience": job.get("min_years_experience"),
+        "region_scope": job.get("region_scope"),
+        "company_size_hint": job.get("company_size_hint"),
         "score": 0,
         "summary": "",
         "reasons": [],
         "deal_breaker": False,
         "recommendation": "SKIP",
         "notified": False,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     })

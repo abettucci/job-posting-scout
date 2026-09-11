@@ -3,11 +3,43 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { api, Job, Search } from "@/lib/api";
+import { api, Job, Search, type Seniority, type RegionScope, type CompanySizeHint } from "@/lib/api";
 import Nav from "@/components/Nav";
 import JobCard from "@/components/JobCard";
 
 type SortBy = "posted_date" | "score";
+
+// Kept in sync by hand with shared/seniority.py's SENIORITY_LEVELS (same
+// small-constant-duplication pattern already used in SearchForm.tsx/ProfileEditor.tsx).
+const SENIORITY_OPTIONS: { id: Seniority; label: string }[] = [
+  { id: "", label: "Any" },
+  { id: "internship", label: "Internship" },
+  { id: "entry", label: "Entry level" },
+  { id: "associate", label: "Associate" },
+  { id: "mid_senior", label: "Mid-Senior" },
+  { id: "director", label: "Director" },
+  { id: "executive", label: "Executive" },
+];
+
+// Kept in sync by hand with shared/seniority.py's extract_region_scope() return
+// values (same pattern as SENIORITY_OPTIONS above). Filtering is strict equality
+// against job.region_scope, same as SENIORITY_OPTIONS — selecting a specific
+// region hides jobs with an unknown (null) region_scope too.
+const REGION_OPTIONS: { id: RegionScope | ""; label: string }[] = [
+  { id: "", label: "Any" },
+  { id: "worldwide", label: "🌍 Worldwide" },
+  { id: "latam", label: "🌎 LATAM" },
+  { id: "restricted", label: "📍 Restricted" },
+];
+
+// Same caveat as COMPANY_SIZE in JobCard.tsx: this is a text-based estimate,
+// not verified headcount — see shared/seniority.py's extract_company_size_hint.
+const COMPANY_SIZE_OPTIONS: { id: CompanySizeHint | ""; label: string }[] = [
+  { id: "", label: "Any" },
+  { id: "startup", label: "🌱 Startup" },
+  { id: "midsize", label: "🏢 Mid-size" },
+  { id: "enterprise", label: "🏛️ Enterprise" },
+];
 
 function timeAgo(date: Date): string {
   const mins = Math.round((Date.now() - date.getTime()) / 60000);
@@ -37,6 +69,10 @@ export default function JobsPage() {
   const [fetching, setFetching] = useState(true);
   const [sortBy, setSortBy] = useState<SortBy>("posted_date");
   const [titleFilter, setTitleFilter] = useState("");
+  const [seniorityFilter, setSeniorityFilter] = useState<Seniority>("");
+  const [yearsFilter, setYearsFilter] = useState("");
+  const [regionFilter, setRegionFilter] = useState<RegionScope | "">("");
+  const [companySizeFilter, setCompanySizeFilter] = useState<CompanySizeHint | "">("");
   const [rescoring, setRescoring] = useState(false);
   const [rescoreMsg, setRescoreMsg] = useState("");
 
@@ -83,10 +119,16 @@ export default function JobsPage() {
       .split(",")
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
-    const filtered =
-      terms.length === 0
-        ? jobs
-        : jobs.filter((j) => terms.some((t) => j.title.toLowerCase().includes(t)));
+    const years = yearsFilter.trim() === "" ? null : Number(yearsFilter);
+
+    const filtered = jobs.filter((j) => {
+      if (terms.length > 0 && !terms.some((t) => j.title.toLowerCase().includes(t))) return false;
+      if (seniorityFilter && j.seniority_level !== seniorityFilter) return false;
+      if (years !== null && j.min_years_experience !== null && j.min_years_experience > years) return false;
+      if (regionFilter && j.region_scope !== regionFilter) return false;
+      if (companySizeFilter && j.company_size_hint !== companySizeFilter) return false;
+      return true;
+    });
 
     return [...filtered].sort((a, b) => {
       if (sortBy === "score") return b.score - a.score;
@@ -96,7 +138,7 @@ export default function JobsPage() {
       if (b.posted_date === null) return -1;
       return new Date(b.posted_date).getTime() - new Date(a.posted_date).getTime();
     });
-  }, [jobs, titleFilter, sortBy]);
+  }, [jobs, titleFilter, seniorityFilter, yearsFilter, regionFilter, companySizeFilter, sortBy]);
 
   if (loading || !user) return null;
 
@@ -147,13 +189,23 @@ export default function JobsPage() {
         </div>
 
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <input
-            type="text"
-            value={titleFilter}
-            onChange={(e) => setTitleFilter(e.target.value)}
-            placeholder="Filter by title (e.g. senior, QA, golang — comma = OR)…"
-            className="input max-w-sm text-sm"
-          />
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="text"
+              value={titleFilter}
+              onChange={(e) => setTitleFilter(e.target.value)}
+              placeholder="Filter by title (e.g. senior, QA, golang — comma = OR)…"
+              className="input max-w-sm text-sm"
+            />
+            <input
+              type="number"
+              min={0}
+              value={yearsFilter}
+              onChange={(e) => setYearsFilter(e.target.value)}
+              placeholder="Your years of experience"
+              className="input w-44 text-sm"
+            />
+          </div>
           <div className="flex items-center gap-2 text-sm">
             <label className="text-slate-600 dark:text-slate-400">Sort by:</label>
             <div className="flex gap-1">
@@ -175,6 +227,64 @@ export default function JobsPage() {
               ))}
             </div>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm flex-wrap">
+          <label className="text-slate-600 dark:text-slate-400">Seniority:</label>
+          <div className="flex gap-1 flex-wrap">
+            {SENIORITY_OPTIONS.map((o) => (
+              <button
+                key={o.id}
+                onClick={() => setSeniorityFilter(o.id)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  seniorityFilter === o.id
+                    ? "bg-brand text-white"
+                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm flex-wrap">
+          <label className="text-slate-600 dark:text-slate-400">Region:</label>
+          <div className="flex gap-1 flex-wrap">
+            {REGION_OPTIONS.map((o) => (
+              <button
+                key={o.id}
+                onClick={() => setRegionFilter(o.id)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  regionFilter === o.id
+                    ? "bg-brand text-white"
+                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm flex-wrap">
+          <label className="text-slate-600 dark:text-slate-400">Company size:</label>
+          <div className="flex gap-1 flex-wrap">
+            {COMPANY_SIZE_OPTIONS.map((o) => (
+              <button
+                key={o.id}
+                onClick={() => setCompanySizeFilter(o.id)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  companySizeFilter === o.id
+                    ? "bg-brand text-white"
+                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-slate-500">(estimated from posting text, not verified)</span>
         </div>
 
         {!fetching && unscoredCount > 0 && (

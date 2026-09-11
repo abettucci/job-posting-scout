@@ -110,7 +110,20 @@ async def login(page: Page, email: str, password: str) -> bool:
         "https://www.linkedin.com/uas/login",
     ]
     # Selectors LinkedIn uses for the username field (may vary by region/A-B test)
-    _username_selectors = ["#username", "input[name='session_key']", "input[autocomplete='username']"]
+    _username_selectors = [
+        "#username",
+        "input[name='session_key']",
+        "input[autocomplete='username']",
+        "input[type='email']",
+        "form.login__form input[type='text']",
+    ]
+    # Phrases that show up on LinkedIn's bot-detection / verification interstitials.
+    # If we see these, no selector will ever match — it's not a markup change,
+    # it's LinkedIn blocking the automated session (common from cloud/Lambda IPs).
+    _challenge_indicators = (
+        "verify you're a human", "quick security check", "unusual activity",
+        "captcha", "checkpoint/challenge", "let's do a quick",
+    )
 
     for login_url in _login_urls:
         try:
@@ -133,14 +146,24 @@ async def login(page: Page, email: str, password: str) -> bool:
                     continue
 
             if not username_sel:
-                # Log page title and a snippet so we know what LinkedIn is showing
+                # Log page title and content so we know what LinkedIn is showing.
                 try:
                     title = await page.title()
-                    html_snippet = (await page.content())[:800]
-                    logger.warning(
-                        f"No username selector found on {page.url} — "
-                        f"title={title!r} html_start={html_snippet!r}"
-                    )
+                    html = await page.content()
+                    lowered = html.lower()
+                    if any(ind in lowered for ind in _challenge_indicators):
+                        logger.warning(
+                            f"LinkedIn served a bot-detection/verification challenge on {page.url} "
+                            f"(title={title!r}) instead of the login form — no selector will match this. "
+                            "Likely cause: automated/headless session or IP flagged by LinkedIn, not a "
+                            "markup change. Needs a fresh manual login + cookie export, or a residential "
+                            "proxy/non-headless session."
+                        )
+                    else:
+                        logger.warning(
+                            f"No username selector found on {page.url} — "
+                            f"title={title!r} html_start={html[:2000]!r}"
+                        )
                 except Exception:
                     logger.warning(f"No username selector found on {page.url} — trying next URL")
                 continue

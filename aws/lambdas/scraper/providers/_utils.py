@@ -50,6 +50,10 @@ def normalize_posted_date(value: Union[str, int, float, None], unit: str = "s") 
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             dt = dt.astimezone(timezone.utc)
-        return dt.replace(tzinfo=None).isoformat()
+        # Keep the UTC offset in the output — the frontend does `new Date(posted_date)`,
+        # and a JS Date parses a timestamp with no offset as *local* time, not UTC.
+        # Stripping tzinfo here used to silently corrupt every displayed date by the
+        # viewer's UTC offset.
+        return dt.isoformat()
     except (ValueError, TypeError, OSError):
         return None

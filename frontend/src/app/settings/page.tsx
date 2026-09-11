@@ -15,6 +15,7 @@ const EMPTY_PROFILE: Profile = {
   prefer: [],
   score_threshold: 75,
   seniority: "",
+  eligible_regions: [],
 };
 
 export default function SettingsPage() {

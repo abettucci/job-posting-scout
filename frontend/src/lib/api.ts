@@ -177,6 +177,8 @@ export type SearchSource =
   | "workingnomads"
   | "remotive"
   | "arbeitnow"
+  | "compujobs"
+  | "onlinejobs"
   | "multi_board";
 
 export type Seniority = "" | "internship" | "entry" | "associate" | "mid_senior" | "director" | "executive";
@@ -214,7 +216,15 @@ export interface Profile {
   prefer: string[];
   score_threshold: number;
   seniority: Seniority;
+  eligible_regions: string[];
 }
+
+export type RegionScope = "worldwide" | "latam" | "restricted";
+
+// Best-effort guess from the posting's own text (see shared/seniority.py's
+// extract_company_size_hint) — never a verified employee count. Always
+// surface it in the UI as an estimate, not a fact.
+export type CompanySizeHint = "startup" | "midsize" | "enterprise";
 
 export type InterviewStage =
   | "applied" | "phone" | "technical" | "onsite" | "offer"
@@ -246,6 +256,8 @@ export interface Job {
   posted_date: string | null;
   seniority_level: Seniority | null;
   min_years_experience: number | null;
+  region_scope: RegionScope | null;
+  company_size_hint: CompanySizeHint | null;
   score: number;
   summary: string;
   reasons: string[];

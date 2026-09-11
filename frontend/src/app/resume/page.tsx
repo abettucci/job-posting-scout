@@ -36,6 +36,28 @@ const EMPTY_EXP: ResumeExperience = {
 const EMPTY_EDU: ResumeEducation = {
   degree: "", school: "", location: "", year: "", gpa: "",
 };
+// Company-evaluation research links. None of these sources has a free public
+// API (Crunchbase/PitchBook/Sacra are paid-only; Glassdoor/Trustpilot/levels.fyi
+// block scraping outright), so these are just pre-filled search links for the
+// user to open and read themselves — no fetch, no scraping, matches the
+// Company Brief feature's own "free, allowlisted sources only" design (see
+// aws/lambdas/api/routers/jobs.py's _google_news). Google's site-search is used
+// uniformly instead of guessing each site's own query-param syntax, since that
+// works reliably regardless of how each site's internal search is built.
+function companyResearchLinks(company: string): { label: string; url: string }[] {
+  const q = encodeURIComponent(company);
+  const siteSearch = (site: string, extra = "") =>
+    `https://www.google.com/search?q=site:${site}+${q}${extra ? `+${encodeURIComponent(extra)}` : ""}`;
+  return [
+    { label: "Trustpilot reviews", url: siteSearch("trustpilot.com") },
+    { label: "Crunchbase profile", url: siteSearch("crunchbase.com") },
+    { label: "Glassdoor reviews", url: siteSearch("glassdoor.com", "reviews") },
+    { label: "levels.fyi salaries", url: siteSearch("levels.fyi") },
+    { label: "Sacra research", url: siteSearch("sacra.com") },
+    { label: "PitchBook profile", url: siteSearch("pitchbook.com") },
+  ];
+}
+
 const EMPTY_PROJ: ResumeProject = {
   name: "", description: "", url: "", bullets: [""],
 };
@@ -1602,6 +1624,19 @@ export default function ResumePage() {
                   </ul>
                 </section>
               )}
+              <section className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Company evaluation (external)</p>
+                <p className="text-xs text-slate-500 mb-3">
+                  None of these have a free API, so these are just pre-filled search links to open and read yourself — no data pulled automatically.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {companyResearchLinks(interviewBrief.company).map((l) => (
+                    <a key={l.label} href={l.url} target="_blank" rel="noopener noreferrer" className="text-sm text-brand hover:underline">
+                      {l.label} →
+                    </a>
+                  ))}
+                </div>
+              </section>
             </div>
           )}
         </div>
