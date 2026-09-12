@@ -75,6 +75,8 @@ export default function JobsPage() {
   const [yearsFilter, setYearsFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState<RegionScope | "">("");
   const [companySizeFilter, setCompanySizeFilter] = useState<CompanySizeHint | "">("");
+  const [expSkillFilter, setExpSkillFilter] = useState("");
+  const [expYearsFilter, setExpYearsFilter] = useState("");
   const [rescoring, setRescoring] = useState(false);
   const [rescoreMsg, setRescoreMsg] = useState("");
 
@@ -122,6 +124,8 @@ export default function JobsPage() {
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
     const years = yearsFilter.trim() === "" ? null : Number(yearsFilter);
+    const expSkill = expSkillFilter.trim().toLowerCase();
+    const expYears = expYearsFilter.trim() === "" ? null : Number(expYearsFilter);
 
     const filtered = jobs.filter((j) => {
       if (terms.length > 0 && !terms.some((t) => j.title.toLowerCase().includes(t))) return false;
@@ -129,6 +133,15 @@ export default function JobsPage() {
       if (years !== null && j.min_years_experience !== null && j.min_years_experience > years) return false;
       if (regionFilter && j.region_scope !== regionFilter) return false;
       if (companySizeFilter && j.company_size_hint !== companySizeFilter) return false;
+      // Skill/task years filter: only excludes a job when it actually mentions
+      // the skill AND asks for more years than declared — a job that never
+      // mentions the skill at all is left in (no signal ≠ disqualified).
+      if (expSkill && expYears !== null) {
+        const overAsk = j.experience_mentions.some(
+          (m) => m.context.toLowerCase().includes(expSkill) && m.years > expYears
+        );
+        if (overAsk) return false;
+      }
       return true;
     });
 
@@ -140,7 +153,7 @@ export default function JobsPage() {
       if (b.posted_date === null) return -1;
       return new Date(b.posted_date).getTime() - new Date(a.posted_date).getTime();
     });
-  }, [jobs, titleFilter, seniorityFilter, yearsFilter, regionFilter, companySizeFilter, sortBy]);
+  }, [jobs, titleFilter, seniorityFilter, yearsFilter, regionFilter, companySizeFilter, expSkillFilter, expYearsFilter, sortBy]);
 
   if (loading || !user) return null;
 
@@ -206,6 +219,22 @@ export default function JobsPage() {
               onChange={(e) => setYearsFilter(e.target.value)}
               placeholder="Your years of experience"
               className="input w-44 text-sm"
+            />
+            <input
+              type="text"
+              value={expSkillFilter}
+              onChange={(e) => setExpSkillFilter(e.target.value)}
+              placeholder="Skill/task (e.g. Python)"
+              className="input w-40 text-sm"
+            />
+            <input
+              type="number"
+              min={0}
+              value={expYearsFilter}
+              onChange={(e) => setExpYearsFilter(e.target.value)}
+              placeholder="Your years in it"
+              className="input w-36 text-sm"
+              title="Hide jobs that ask for more years in that skill/task than you enter here"
             />
           </div>
           <div className="flex items-center gap-2 text-sm">

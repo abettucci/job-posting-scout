@@ -258,6 +258,10 @@ export interface Job {
   min_years_experience: number | null;
   region_scope: RegionScope | null;
   company_size_hint: CompanySizeHint | null;
+  // Best-effort {years, context} pairs pulled from the posting's own text —
+  // e.g. {years: 5, context: "Python"} — see shared/seniority.py's
+  // extract_experience_mentions. Never a verified/confirmed requirement.
+  experience_mentions: { years: number; context: string }[];
   score: number;
   summary: string;
   reasons: string[];

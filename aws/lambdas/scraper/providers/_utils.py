@@ -1,18 +1,16 @@
 """Shared helpers for ATS provider modules."""
 from __future__ import annotations
 
+import html as _html
 import re
 from datetime import datetime, timezone
 from typing import List, Optional, Union
 
 
 def strip_html(html: str) -> str:
-    """Remove HTML tags and decode common entities."""
+    """Remove HTML tags and decode entities (named and numeric, e.g. &#8217;)."""
     text = re.sub(r"<[^>]+>", " ", html)
-    entities = {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"',
-                "&#39;": "'", "&nbsp;": " ", "&ndash;": "–", "&mdash;": "—"}
-    for ent, char in entities.items():
-        text = text.replace(ent, char)
+    text = _html.unescape(text)
     return re.sub(r"\s+", " ", text).strip()
 
 

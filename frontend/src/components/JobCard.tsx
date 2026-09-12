@@ -92,7 +92,7 @@ export default function JobCard({ job }: Props) {
           <p className="text-sm text-slate-600 dark:text-slate-400">
             {job.company} · {job.location}
           </p>
-          {(job.seniority_level || job.min_years_experience || job.region_scope || job.company_size_hint) && (
+          {(job.seniority_level || job.min_years_experience || job.region_scope || job.company_size_hint || job.experience_mentions.length > 0) && (
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
               {job.seniority_level && (
                 <span className="tag border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600">
@@ -117,6 +117,15 @@ export default function JobCard({ job }: Props) {
                   {COMPANY_SIZE[job.company_size_hint].icon} {COMPANY_SIZE[job.company_size_hint].label}
                 </span>
               )}
+              {job.experience_mentions.slice(0, 4).map((m, i) => (
+                <span
+                  key={i}
+                  title="Extracted from the posting's own text — may miss or misread some mentions"
+                  className="tag border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600"
+                >
+                  📅 {m.years}+ yrs · {m.context}
+                </span>
+              ))}
             </div>
           )}
         </div>

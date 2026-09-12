@@ -10,7 +10,7 @@ none of these can drift out of sync on valid values or LinkedIn's filter codes.
 from __future__ import annotations
 
 import re
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 # Ordered for display in a dropdown, junior → senior. Older versions of this
 # app copied LinkedIn's own "Mid-Senior level" f_E bucket, which lumps
@@ -205,3 +205,95 @@ def extract_company_size_hint(description: str) -> Optional[str]:
     if _STARTUP_SIZE_RE.search(text):
         return "startup"
     return None
+
+
+# ── Per-skill/task experience mentions (best-effort) ──────────────────────────
+# extract_requirements() above only returns one overall min_years_experience
+# number for the whole posting. This instead pulls out *every* "N years ...
+# experience" mention individually, tied to whatever skill/task it's next to
+# (e.g. "3+ years with Python", "4+ years of Quality Assurance experience"),
+# so a posting can show multiple {years, context} pairs instead of a single
+# number. Two shapes are matched:
+#   - "<skill/phrase> ... N years[’] experience"   (skill BEFORE "experience")
+#   - "N years [of ...] experience in/with/as/building/leading/managing <phrase>"
+# (skill/phrase AFTER "experience"). The word "experience" itself is required
+# in both — this is what rules out unrelated "N years" mentions like "For over
+# 35 years, the experts at Mitratech have been focused..." (company history,
+# not a requirement) from being picked up. Best-effort like every other
+# extractor in this module: expect noise on dense bullet-list postings, and
+# never treat a missing mention as "requires 0 years" — it means unknown.
+_EXPERIENCE_REVERSE_RE = re.compile(
+    r"\b(\d{1,2})\+?\s*years[^a-zA-Z]{0,6}\s*([^,.;\n\d]{1,35}?)\s*experience\b", re.I,
+)
+_EXPERIENCE_FORWARD_RE = re.compile(
+    r"\b(\d{1,2})\+?(?:\s*(?:to|-)\s*\d{1,2}\+?)?\s*years?[^a-zA-Z]{0,6}"
+    r"(?:of\s+)?(?:hands-on\s+|commercial\s+|professional\s+|relevant\s+|practical\s+)*"
+    r"experience\s+(?:in|with|as|building|leading|managing|working\s+(?:with|on|in))\s+"
+    r"([^,.;\n\d]{2,45})",
+    re.I,
+)
+_EXPERIENCE_LEADING_STOPWORDS = {
+    "of", "a", "an", "the", "and", "or", "is", "in", "with", "as", "to", "for", "on", "at",
+}
+_EXPERIENCE_TRAILING_JUNK_RE = re.compile(
+    r"\s+(is\s+(a\s+)?(required|mandatory|must|a\s+plus)|required|requirements?|at\s+least)\b.*$",
+    re.I,
+)
+_MAX_EXPERIENCE_MENTIONS = 8
+
+
+def _clean_experience_context(raw: str) -> Optional[str]:
+    context = re.sub(r"\s+", " ", raw).strip(" .,;:-()")
+    context = _EXPERIENCE_TRAILING_JUNK_RE.sub("", context).strip()
+    context = re.sub(r"\s*\([^)]*$", "", context)  # drop an unmatched trailing "("
+    words = context.split()
+    while words and words[0].lower() in _EXPERIENCE_LEADING_STOPWORDS:
+        words = words[1:]
+    while words and words[-1].lower() in ("and", "or", "&", "with", "in", "as"):
+        words = words[:-1]
+    if not words:
+        return None
+    if len(words) > 6:
+        return " ".join(words[:6]) + "…"
+    return " ".join(words)
+
+
+def extract_experience_mentions(description: str) -> List[Dict[str, object]]:
+    """Best-effort list of every distinct "N years ... experience" mention in
+    a job description, each as {"years": int, "context": str}. Capped at
+    _MAX_EXPERIENCE_MENTIONS; near-duplicate mentions for the same year count
+    are collapsed, keeping the longer/more descriptive context."""
+    if not description:
+        return []
+
+    mentions: List[Dict[str, object]] = []
+    seen: List[tuple] = []
+
+    for pattern in (_EXPERIENCE_REVERSE_RE, _EXPERIENCE_FORWARD_RE):
+        for m in pattern.finditer(description):
+            years = int(m.group(1))
+            if not (0 < years <= 20):
+                continue
+            context = _clean_experience_context(m.group(2))
+            if not context or len(context) < 2:
+                continue
+
+            duplicate = False
+            for i, (seen_years, seen_context) in enumerate(seen):
+                if seen_years == years and (
+                    context.lower() in seen_context.lower() or seen_context.lower() in context.lower()
+                ):
+                    if len(context) > len(seen_context):
+                        seen[i] = (years, context)
+                        mentions[i] = {"years": years, "context": context}
+                    duplicate = True
+                    break
+            if duplicate:
+                continue
+
+            seen.append((years, context))
+            mentions.append({"years": years, "context": context})
+            if len(mentions) >= _MAX_EXPERIENCE_MENTIONS:
+                return mentions
+
+    return mentions

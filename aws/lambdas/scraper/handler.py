@@ -42,6 +42,7 @@ from seniority import (
     SENIORITY_LEVELS,
     SENIORITY_TO_LINKEDIN_F_E,
     extract_company_size_hint,
+    extract_experience_mentions,
     extract_region_scope,
     extract_requirements,
 )
@@ -141,7 +142,14 @@ def _enrich_job(job: Dict) -> Dict:
     extracted = extract_requirements(job.get("title", ""), job.get("description", ""))
     region_scope = extract_region_scope(job.get("location", ""), job.get("description", ""))
     company_size_hint = extract_company_size_hint(job.get("description", ""))
-    return {**job, **extracted, "region_scope": region_scope, "company_size_hint": company_size_hint}
+    experience_mentions = extract_experience_mentions(job.get("description", ""))
+    return {
+        **job,
+        **extracted,
+        "region_scope": region_scope,
+        "company_size_hint": company_size_hint,
+        "experience_mentions": experience_mentions,
+    }
 
 
 def _seniority_mismatch(job: Dict, profile: Dict) -> Dict | None:
@@ -471,6 +479,7 @@ def _save_scored_job(db: DynamoDBClient, user_id: str, job: dict, result: dict, 
         "min_years_experience": job.get("min_years_experience"),
         "region_scope": job.get("region_scope"),
         "company_size_hint": job.get("company_size_hint"),
+        "experience_mentions": job.get("experience_mentions", []),
         "score": result["score"],
         "summary": result.get("summary", ""),
         "reasons": result.get("reasons", []),
@@ -495,6 +504,7 @@ def _save_unscored(db: DynamoDBClient, user_id: str, job: dict):
         "min_years_experience": job.get("min_years_experience"),
         "region_scope": job.get("region_scope"),
         "company_size_hint": job.get("company_size_hint"),
+        "experience_mentions": job.get("experience_mentions", []),
         "score": 0,
         "summary": "",
         "reasons": [],
