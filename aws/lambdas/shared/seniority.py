@@ -137,13 +137,28 @@ def extract_region_scope(location: str, description: str) -> Optional[str]:
     """Best-effort classification of a posting's remote eligibility: "worldwide",
     "latam", "restricted" (tied to a specific non-LATAM place), or None (no
     clear signal either way — never treat None as "restricted", it means
-    unknown, not incompatible)."""
-    text = f"{location or ''} {description or ''}"
-    if _WORLDWIDE_RE.search(text):
+    unknown, not incompatible).
+
+    "worldwide" and "latam" are checked ONLY against `location` — that field
+    is short and intentional (e.g. "Worldwide", "Remote - Anywhere"). Neither
+    is checked against `description`: unstructured marketing prose reliably
+    contains false positives for both — a stray "we are a global company"
+    sentence for "worldwide" (seen misclassifying a London-based posting),
+    and a stray "help build the best fintech app in Latin America" (talking
+    about the product's market, not the hire's location) for "latam" (seen
+    misclassifying the same London posting as LATAM-eligible). "restricted"
+    is lower false-positive risk — it keys off specific country names, which
+    postings rarely namedrop by accident — so it still checks the combined
+    location+description text, same as before.
+    """
+    location = location or ""
+    combined = f"{location} {description or ''}"
+
+    if _WORLDWIDE_RE.search(location):
         return "worldwide"
-    if _LATAM_RE.search(text):
+    if _LATAM_RE.search(location):
         return "latam"
-    if _RESTRICTED_RE.search(text):
+    if _RESTRICTED_RE.search(combined):
         return "restricted"
     return None
 
