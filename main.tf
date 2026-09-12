@@ -215,6 +215,7 @@ resource "aws_iam_role_policy" "app_policy" {
 # ─────────────────────────────────────────────────────────────────────────────
 
 resource "aws_lambda_function" "api" {
+  description   = "Public REST API (FastAPI) — auth, profile, searches, jobs, interviews, resume/tailoring, and manual scraper triggers for the frontend"
   function_name = "${local.prefix}-api"
   role          = aws_iam_role.lambda_exec.arn
   package_type  = "Image"
@@ -240,6 +241,7 @@ resource "aws_lambda_function" "api" {
 }
 
 resource "aws_lambda_function" "scraper" {
+  description   = "Scheduled job scraper — LinkedIn (Playwright) + ATS/aggregator providers, scores new postings with Claude Haiku and notifies via Telegram"
   function_name = "${local.prefix}-scraper"
   role          = aws_iam_role.lambda_exec.arn
   package_type  = "Image"
@@ -261,6 +263,7 @@ resource "aws_lambda_function" "scraper" {
 }
 
 resource "aws_lambda_function" "telegram_bot" {
+  description   = "Telegram webhook handler — processes bot commands and links a Telegram chat to a user account"
   function_name = "${local.prefix}-telegram-bot"
   role          = aws_iam_role.lambda_exec.arn
   package_type  = "Image"
