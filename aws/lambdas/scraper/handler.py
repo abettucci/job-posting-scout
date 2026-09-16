@@ -141,13 +141,29 @@ def _build_linkedin_url(job_title: str, seniority: str, location_filter: str) ->
 def _enrich_job(job: Dict) -> Dict:
     extracted = extract_requirements(job.get("title", ""), job.get("description", ""))
     region_scope = extract_region_scope(job.get("location", ""), job.get("description", ""))
-    company_size_hint = extract_company_size_hint(job.get("description", ""))
     experience_mentions = extract_experience_mentions(job.get("description", ""))
+
+    # LinkedIn-sourced company size (from linkedin.py's fetch_linkedin_company_size,
+    # already attached to the job dict — LinkedIn jobs only) wins over recomputing
+    # from the posting's own text, since it's LinkedIn's own self-reported figure
+    # rather than a regex guess. Aggregator/ATS jobs never carry a pre-set
+    # company_size_source, so they always fall to the description-based guess.
+    if job.get("company_size_hint") and job.get("company_size_source") == "linkedin":
+        company_size_hint = job["company_size_hint"]
+        company_size_source = "linkedin"
+        company_size_raw = job.get("company_size_raw")
+    else:
+        company_size_hint = extract_company_size_hint(job.get("description", ""))
+        company_size_source = "description" if company_size_hint else None
+        company_size_raw = None
+
     return {
         **job,
         **extracted,
         "region_scope": region_scope,
         "company_size_hint": company_size_hint,
+        "company_size_source": company_size_source,
+        "company_size_raw": company_size_raw,
         "experience_mentions": experience_mentions,
     }
 
@@ -279,6 +295,7 @@ async def _main():
         profiles_table=cfg.profiles_table,
         jobs_table=cfg.jobs_table,
         telegram_codes_table=cfg.telegram_codes_table,
+        company_size_cache_table=cfg.company_size_cache_table,
         region=cfg.region,
     )
     tg = TelegramClient(cfg.telegram_bot_token)
@@ -361,6 +378,8 @@ async def _main():
                 email=cfg.linkedin_email,
                 password=cfg.linkedin_password,
                 region=cfg.region,
+                cache_get=db.get_company_size_cache,
+                cache_put=db.save_company_size_cache,
             )
             logger.info(f"LinkedIn scraper returned {sum(len(v) for v in linkedin_results.values())} jobs "
                         f"across {len(linkedin_results)} searches")
@@ -479,6 +498,8 @@ def _save_scored_job(db: DynamoDBClient, user_id: str, job: dict, result: dict, 
         "min_years_experience": job.get("min_years_experience"),
         "region_scope": job.get("region_scope"),
         "company_size_hint": job.get("company_size_hint"),
+        "company_size_source": job.get("company_size_source"),
+        "company_size_raw": job.get("company_size_raw"),
         "experience_mentions": job.get("experience_mentions", []),
         "score": result["score"],
         "summary": result.get("summary", ""),
@@ -504,6 +525,8 @@ def _save_unscored(db: DynamoDBClient, user_id: str, job: dict):
         "min_years_experience": job.get("min_years_experience"),
         "region_scope": job.get("region_scope"),
         "company_size_hint": job.get("company_size_hint"),
+        "company_size_source": job.get("company_size_source"),
+        "company_size_raw": job.get("company_size_raw"),
         "experience_mentions": job.get("experience_mentions", []),
         "score": 0,
         "summary": "",

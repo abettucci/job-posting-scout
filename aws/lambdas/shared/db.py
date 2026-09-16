@@ -1,7 +1,7 @@
 import boto3
 import logging
 from boto3.dynamodb.conditions import Key, Attr
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -40,6 +40,7 @@ class DynamoDBClient:
         interviews_table: str = "",
         resumes_table: str = "",
         cv_history_table: str = "",
+        company_size_cache_table: str = "",
         region: str = "us-east-1",
     ):
         db = boto3.resource("dynamodb", region_name=region)
@@ -51,6 +52,7 @@ class DynamoDBClient:
         self.interviews = db.Table(interviews_table) if interviews_table else None
         self.resumes = db.Table(resumes_table) if resumes_table else None
         self.cv_history = db.Table(cv_history_table) if cv_history_table else None
+        self.company_size_cache = db.Table(company_size_cache_table) if company_size_cache_table else None
 
     # ── Users ──────────────────────────────────────────────────────────────
 
@@ -237,26 +239,68 @@ class DynamoDBClient:
             logger.error(f"save_user_job_interview_brief error: {e}")
             return False
 
+    def set_job_applied(self, user_id: str, job_id: str, applied: bool) -> bool:
+        """Mark/unmark a job as applied — never addresses another user's job.
+        Storing `applied_at` (instead of just a bool) is what lets the
+        "Applied" tab sort by when you applied, not just posting/found date."""
+        try:
+            if applied:
+                update_expr = "SET applied = :applied, applied_at = :applied_at"
+                values = {":applied": applied, ":applied_at": datetime.now(timezone.utc).isoformat()}
+            else:
+                update_expr = "SET applied = :applied REMOVE applied_at"
+                values = {":applied": applied}
+            self.jobs.update_item(
+                Key={"user_id": user_id, "job_id": job_id},
+                ConditionExpression=Attr("job_id").exists(),
+                UpdateExpression=update_expr,
+                ExpressionAttributeValues=values,
+            )
+            return True
+        except self.jobs.meta.client.exceptions.ConditionalCheckFailedException:
+            return False
+        except Exception as e:
+            logger.error(f"set_job_applied error: {e}")
+            return False
+
     def get_user_jobs(
         self,
         user_id: str,
         min_score: int = 0,
         limit: int = 50,
         last_key: Optional[Dict] = None,
+        applied: Optional[bool] = None,
     ) -> tuple[List[Dict], Optional[Dict]]:
         try:
-            kwargs: Dict = {
-                "KeyConditionExpression": Key("user_id").eq(user_id),
-                "FilterExpression": Attr("score").gte(min_score),
-                "Limit": limit,
-                "ScanIndexForward": False,
-            }
-            if last_key:
-                kwargs["ExclusiveStartKey"] = last_key
-            resp = self.jobs.query(**kwargs)
-            items = [_from_decimal(j) for j in resp.get("Items", [])]
-            next_key = resp.get("LastEvaluatedKey")
-            return items, next_key
+            filter_expr = Attr("score").gte(min_score)
+            if applied is not None:
+                # Un-applied jobs never had `applied` set at all (older rows) or
+                # have it explicitly False — attr_not_exists covers the former.
+                filter_expr = filter_expr & (
+                    Attr("applied").eq(True) if applied
+                    else (Attr("applied").not_exists() | Attr("applied").eq(False))
+                )
+            # DynamoDB applies FilterExpression *after* Limit. Keep querying
+            # until we have a useful page of matching jobs; otherwise a user
+            # with many recently-applied rows could see a partially empty Jobs
+            # page (or vice versa) even though more matches exist later.
+            items: List[Dict] = []
+            next_key = last_key
+            while len(items) < limit:
+                kwargs: Dict = {
+                    "KeyConditionExpression": Key("user_id").eq(user_id),
+                    "FilterExpression": filter_expr,
+                    "Limit": limit - len(items),
+                    "ScanIndexForward": False,
+                }
+                if next_key:
+                    kwargs["ExclusiveStartKey"] = next_key
+                resp = self.jobs.query(**kwargs)
+                items.extend(_from_decimal(j) for j in resp.get("Items", []))
+                next_key = resp.get("LastEvaluatedKey")
+                if not next_key:
+                    break
+            return items[:limit], next_key
         except Exception as e:
             logger.error(f"get_user_jobs error: {e}")
             return [], None
@@ -289,6 +333,42 @@ class DynamoDBClient:
         except Exception as e:
             logger.error(f"consume_telegram_code error: {e}")
             return None
+
+    # ── Company size cache ────────────────────────────────────────────────────
+    # Per-company employee-count lookup from LinkedIn's own company page
+    # (scraper/linkedin.py's fetch_linkedin_company_size). Keyed by company
+    # LinkedIn slug so multiple job postings from the same employer share one
+    # cached result instead of re-visiting the company page every run.
+
+    def get_company_size_cache(self, company_key: str) -> Optional[Dict]:
+        if not self.company_size_cache:
+            return None
+        try:
+            resp = self.company_size_cache.get_item(Key={"company_key": company_key})
+            item = resp.get("Item")
+            return _from_decimal(item) if item else None
+        except Exception as e:
+            logger.error(f"get_company_size_cache error: {e}")
+            return None
+
+    def save_company_size_cache(
+        self, company_key: str, size_hint: Optional[str], raw_range: Optional[str], ttl_days: int = 30
+    ) -> bool:
+        if not self.company_size_cache:
+            return False
+        ttl = int((datetime.utcnow() + timedelta(days=ttl_days)).timestamp())
+        try:
+            self.company_size_cache.put_item(Item={
+                "company_key": company_key,
+                "size_hint": size_hint,
+                "raw_range": raw_range,
+                "fetched_at": datetime.utcnow().isoformat(),
+                "ttl": ttl,
+            })
+            return True
+        except Exception as e:
+            logger.error(f"save_company_size_cache error: {e}")
+            return False
 
     # ── Interviews ───────────────────────────────────────────────────────────
 

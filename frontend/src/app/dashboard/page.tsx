@@ -27,7 +27,7 @@ export default function DashboardPage() {
     if (!user) return;
     Promise.all([
       api.getSearches(),
-      api.getJobs(user.score_threshold, 10),
+      api.getJobs(user.score_threshold, 10, false),
     ]).then(([s, j]) => {
       setSearches(s);
       setJobs(j.items);

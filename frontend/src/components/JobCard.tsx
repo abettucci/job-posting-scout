@@ -1,10 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Job } from "@/lib/api";
+import { api, type Job } from "@/lib/api";
 
 interface Props {
   job: Job;
+  // Lets the parent page drop the job from its own list (Jobs page) or move
+  // it (Applied page) without refetching — see jobs/page.tsx and
+  // applied/page.tsx for the two different reactions to the same event.
+  onAppliedChange?: (jobId: string, applied: boolean) => void;
 }
 
 function ScoreBadge({ score }: { score: number }) {
@@ -65,8 +70,9 @@ function RecBadge({ rec }: { rec: Job["recommendation"] }) {
   );
 }
 
-export default function JobCard({ job }: Props) {
+export default function JobCard({ job, onAppliedChange }: Props) {
   const router = useRouter();
+  const [applying, setApplying] = useState(false);
   const foundDate = new Date(job.timestamp).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -76,6 +82,19 @@ export default function JobCard({ job }: Props) {
     : null;
 
   const trackUrl = `/interviews?job_id=${job.job_id}&company=${encodeURIComponent(job.company)}&role=${encodeURIComponent(job.title)}&score=${job.score}&url=${encodeURIComponent(job.url)}`;
+
+  const handleToggleApplied = async () => {
+    const next = !job.applied;
+    setApplying(true);
+    try {
+      await api.setJobApplied(job.job_id, next);
+      onAppliedChange?.(job.job_id, next);
+    } catch (err) {
+      console.error("Failed to update applied status", err);
+    } finally {
+      setApplying(false);
+    }
+  };
 
   return (
     <div className="card space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
@@ -111,10 +130,17 @@ export default function JobCard({ job }: Props) {
               )}
               {job.company_size_hint && (
                 <span
-                  title="Estimated from the posting's own text — not a verified employee count"
+                  title={
+                    job.company_size_source === "linkedin"
+                      ? `LinkedIn: ${job.company_size_raw ?? "reported employee-count range"} — still an estimate, not an audited headcount`
+                      : "Estimated from the posting's own text — not a verified employee count"
+                  }
                   className="tag border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600"
                 >
-                  {COMPANY_SIZE[job.company_size_hint].icon} {COMPANY_SIZE[job.company_size_hint].label}
+                  {COMPANY_SIZE[job.company_size_hint].icon}{" "}
+                  {job.company_size_source === "linkedin"
+                    ? COMPANY_SIZE[job.company_size_hint].label.replace("(est.)", "(LinkedIn)")
+                    : COMPANY_SIZE[job.company_size_hint].label}
                 </span>
               )}
               {job.experience_mentions.slice(0, 4).map((m, i) => (
@@ -190,6 +216,18 @@ export default function JobCard({ job }: Props) {
             className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             + Track Interview
+          </button>
+          <button
+            onClick={handleToggleApplied}
+            disabled={applying}
+            title={job.applied ? "Move back to Jobs" : "Move to Applied"}
+            className={`text-xs transition-colors disabled:opacity-50 ${
+              job.applied
+                ? "text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
+          >
+            {applying ? "…" : job.applied ? "✅ Applied" : "+ Applied"}
           </button>
           <a
             href={job.url}

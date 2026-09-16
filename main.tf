@@ -109,6 +109,20 @@ resource "aws_dynamodb_table" "telegram_codes" {
   }
 }
 
+resource "aws_dynamodb_table" "company_size_cache" {
+  name         = "${local.prefix}-company-size-cache"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "company_key"
+  attribute {
+    name = "company_key"
+    type = "S"
+  }
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+}
+
 resource "aws_dynamodb_table" "interviews" {
   name         = "${local.prefix}-interviews"
   billing_mode = "PAY_PER_REQUEST"
@@ -187,6 +201,7 @@ resource "aws_iam_role_policy" "app_policy" {
           aws_dynamodb_table.interviews.arn,
           aws_dynamodb_table.resumes.arn,
           aws_dynamodb_table.cv_history.arn,
+          aws_dynamodb_table.company_size_cache.arn,
         ]
       },
       {
@@ -257,6 +272,7 @@ resource "aws_lambda_function" "scraper" {
       PROFILES_TABLE           = aws_dynamodb_table.profiles.name
       JOBS_TABLE               = aws_dynamodb_table.jobs.name
       TELEGRAM_CODES_TABLE     = aws_dynamodb_table.telegram_codes.name
+      COMPANY_SIZE_CACHE_TABLE = aws_dynamodb_table.company_size_cache.name
       MAX_SCORER_CALLS_PER_RUN = "150"
     }
   }

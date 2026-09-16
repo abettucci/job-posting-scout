@@ -108,7 +108,7 @@ async def main():
         print(f"🤖  Dry run:    {cfg['dry_run']}\n")
 
     # ── 1. Scrape ─────────────────────────────────────────────────────────────
-    from linkedin import scrape_search
+    from linkedin import scrape_search, login
     from playwright.async_api import async_playwright
 
     async with async_playwright() as pw:
@@ -122,47 +122,25 @@ async def main():
         )
         page = await ctx.new_page()
 
-        # Log in
+        # Log in — call the real scraper login() so this harness exercises the
+        # exact code path Lambda runs. (Previously this had its own simplified
+        # inline login with no selector fallback chain, so it couldn't catch a
+        # regression in login() itself — which is exactly what broke in prod.)
         logger.info("Logging in to LinkedIn...")
-        await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30_000)
+        ok = await login(page, cfg["linkedin_email"], cfg["linkedin_password"])
 
         _logged_in_patterns = ("feed", "mynetwork", "jobs", "messaging", "notifications")
 
-        def _is_logged_in(url: str) -> bool:
-            return any(p in url for p in _logged_in_patterns)
-
-        # Try auto-fill if the standard form is present; otherwise ask for manual login
-        form_found = False
-        try:
-            await page.wait_for_selector("#username", timeout=10_000)
-            form_found = True
-        except Exception:
-            pass
-
-        if form_found:
-            await page.fill("#username", cfg["linkedin_email"])
-            await page.fill("#password", cfg["linkedin_password"])
-            await page.click('button[type="submit"]')
-            try:
-                await page.wait_for_url(
-                    lambda url: _is_logged_in(url) or "checkpoint" in url or "challenge" in url,
-                    timeout=20_000,
-                )
-            except Exception:
-                pass
-
-        # Handle challenge/verification step (also covers the case where form was not found)
-        if "checkpoint" in page.url or "challenge" in page.url or not _is_logged_in(page.url):
+        if not ok:
             await page.screenshot(path="linkedin_challenge.png")
-            print(f"\n⚠️  Manual action needed. Current URL: {page.url}")
-            if not form_found:
-                print("   LinkedIn did not show the standard login form (may be a CAPTCHA or bot check).")
-                print("   Screenshot saved to linkedin_challenge.png")
-            print("   Complete the login/verification in the browser window.")
+            print(f"\n⚠️  Automated login did not complete. Current URL: {page.url}")
+            print("   Screenshot saved to linkedin_challenge.png — check the log lines above")
+            print("   for the exact reason (challenge page vs. no matching selector).")
+            print("   Complete the login/verification manually in the browser window if needed.")
             print("   Once you see your LinkedIn feed, press Enter here...")
             input()
 
-        if not _is_logged_in(page.url):
+        if not any(p in page.url for p in _logged_in_patterns):
             print(f"\n❌  Login failed — current URL: {page.url}")
             await browser.close()
             return

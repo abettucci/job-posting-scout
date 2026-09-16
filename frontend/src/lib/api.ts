@@ -74,10 +74,17 @@ export const api = {
     }),
 
   // Jobs
-  getJobs: (minScore = 0, limit = 20) =>
-    req<{ items: Job[]; count: number }>(`/jobs?min_score=${minScore}&limit=${limit}`),
+  getJobs: (minScore = 0, limit = 20, applied?: boolean) =>
+    req<{ items: Job[]; count: number }>(
+      `/jobs?min_score=${minScore}&limit=${limit}${applied !== undefined ? `&applied=${applied}` : ""}`
+    ),
   createInterviewBrief: (jobId: string) =>
     req<InterviewBrief>(`/jobs/${encodeURIComponent(jobId)}/interview-brief`, { method: "POST" }),
+  setJobApplied: (jobId: string, applied: boolean) =>
+    req<{ job_id: string; applied: boolean }>(`/jobs/${encodeURIComponent(jobId)}/applied`, {
+      method: "PATCH",
+      body: JSON.stringify({ applied }),
+    }),
 
   // Scraper
   runScraper: () => req<{ triggered: boolean }>("/scraper/run", { method: "POST" }),
@@ -226,6 +233,12 @@ export type RegionScope = "worldwide" | "latam" | "restricted";
 // surface it in the UI as an estimate, not a fact.
 export type CompanySizeHint = "startup" | "midsize" | "enterprise";
 
+// "linkedin" = LinkedIn's own self-reported employee-count range (from the
+// company's About page, see scraper/linkedin.py's fetch_linkedin_company_size)
+// — still an estimate/bucket, not an audited headcount, but more authoritative
+// than "description" (a regex guess over the posting's own text).
+export type CompanySizeSource = "linkedin" | "description";
+
 export type InterviewStage =
   | "applied" | "phone" | "technical" | "onsite" | "offer"
   | "accepted" | "rejected" | "withdrawn";
@@ -258,6 +271,8 @@ export interface Job {
   min_years_experience: number | null;
   region_scope: RegionScope | null;
   company_size_hint: CompanySizeHint | null;
+  company_size_source: CompanySizeSource | null;
+  company_size_raw: string | null;
   // Best-effort {years, context} pairs pulled from the posting's own text —
   // e.g. {years: 5, context: "Python"} — see shared/seniority.py's
   // extract_experience_mentions. Never a verified/confirmed requirement.
@@ -269,6 +284,10 @@ export interface Job {
   recommendation: "APPLY" | "MAYBE" | "SKIP";
   notified: boolean;
   timestamp: string;
+  // Older rows saved before this feature existed never got `applied` set at
+  // all — treat undefined/missing the same as false everywhere this is read.
+  applied?: boolean;
+  applied_at?: string | null;
 }
 
 export interface InterviewBriefSource {

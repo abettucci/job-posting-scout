@@ -87,7 +87,10 @@ export default function JobsPage() {
   useEffect(() => {
     if (!user) return;
     setFetching(true);
-    api.getJobs(minScore, 50).then((r) => setJobs(r.items)).finally(() => setFetching(false));
+    // Explicitly request only the active queue. Older rows with no `applied`
+    // attribute are treated as not applied by the API, so this also works for
+    // every job saved before the feature existed.
+    api.getJobs(minScore, 50, false).then((r) => setJobs(r.items)).finally(() => setFetching(false));
   }, [user, minScore]);
 
   useEffect(() => {
@@ -345,7 +348,13 @@ export default function JobsPage() {
         ) : (
           <div className="space-y-3">
             {visibleJobs.map((j) => (
-              <JobCard key={j.job_id} job={j} />
+              <JobCard
+                key={j.job_id}
+                job={j}
+                onAppliedChange={(jobId, applied) => {
+                  if (applied) setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                }}
+              />
             ))}
           </div>
         )}

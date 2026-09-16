@@ -174,23 +174,64 @@ def extract_region_scope(location: str, description: str) -> Optional[str]:
 # This is a much weaker signal (just regex over the posting's own text) but
 # it's free, instant, and carries zero ToS/anti-bot risk. Always label it as
 # an estimate in the UI — never present it as a verified employee count.
+# Phrase-based regexes are qualitative signals only (funding stage, structural
+# wording) — deliberately NO literal employee-count numbers here. Numbers are
+# all handled by _parse_employee_count below instead, so a range like
+# "1,001-5,000 employees" can't get double-matched by an open-ended numeric
+# clause in the wrong bucket (e.g. the old _ENTERPRISE_RE numeric clause used
+# to match on the "5,000" half of that exact range and misclassify it).
 _STARTUP_SIZE_RE = re.compile(
     r"\b(pre-seed|seed[\s-]stage|seed[\s-]funded|series\s+a\b|series\s+b\b|"
     r"early[\s-]stage\s+startup|founding\s+(?:team|engineer|member)|small\s+but\s+mighty|"
-    r"1[\s-]?(?:to|-)[\s-]?10\s+employees|11[\s-]?(?:to|-)[\s-]?50\s+employees)\b",
+    r"bootstrapped|venture[\s-]?backed|angel[\s-]?(?:funded|backed)|pre[\s-]?series\s+a|"
+    r"y\s*combinator|yc\s*[sw]\d{2}\b)\b",
     re.I,
 )
 _MIDSIZE_RE = re.compile(
     r"\b(series\s+c\b|series\s+d\b|scale[\s-]?up|growth[\s-]stage|"
-    r"51[\s-]?(?:to|-)[\s-]?200\s+employees|201[\s-]?(?:to|-)[\s-]?500\s+employees|"
-    r"201[\s-]?(?:to|-)[\s-]?1,?000\s+employees)\b",
+    r"medium[\s-]?sized?\s+(?:company|business)|hundreds\s+of\s+employees)\b",
     re.I,
 )
 _ENTERPRISE_RE = re.compile(
-    r"\b(fortune\s+(?:100|500|1000)|publicly\s+traded|nyse:|nasdaq:|multinational\s+corporation|"
-    r"\d[\d,]{3,}\+?\s+employees|thousands\s+of\s+employees|global\s+enterprise)\b",
+    r"\b(fortune\s+(?:100|500|1000)|publicly\s+traded|publicly\s+listed|nyse:|nasdaq:|"
+    r"multinational(?:\s+corporation)?|unicorn|s&p\s*500|ftse\s*100|government\s+contractor|"
+    r"thousands\s+of\s+employees|global\s+enterprise)\b",
     re.I,
 )
+
+# Generic numeric fallback: matches ranges ("51-200 employees", "1,001-5,000
+# employees") and single figures ("150 employees", "2,500+ employees") without
+# needing to enumerate every phrasing. Buckets align with LinkedIn's own
+# company-size ranges (1-10, 11-50, 51-200, 201-500, 501-1,000, 1,001-5,000,
+# 5,001-10,000, 10,001+), so this same bucketing is reused by
+# linkedin.py's fetch_linkedin_company_size for LinkedIn's self-reported range.
+_EMPLOYEE_COUNT_RE = re.compile(
+    r"(\d[\d,]{0,6})\s*(?:\+|-|to)\s*(\d[\d,]{0,6})?\s*\+?\s*employees\b"
+    r"|(\d[\d,]{0,6})\+?\s+employees\b",
+    re.I,
+)
+
+
+def _bucket_employee_count(low: int, high: Optional[int] = None) -> Optional[str]:
+    n = high if high is not None else low
+    if n <= 200:
+        return "startup"
+    if n <= 5000:
+        return "midsize"
+    return "enterprise"
+
+
+def _parse_employee_count(text: str) -> Optional[str]:
+    match = _EMPLOYEE_COUNT_RE.search(text)
+    if not match:
+        return None
+    try:
+        nums = [int(g.replace(",", "")) for g in match.groups() if g]
+    except ValueError:
+        return None
+    if not nums or any(n <= 0 or n > 2_000_000 for n in nums):
+        return None
+    return _bucket_employee_count(min(nums), max(nums))
 
 
 def extract_company_size_hint(description: str) -> Optional[str]:
@@ -204,7 +245,7 @@ def extract_company_size_hint(description: str) -> Optional[str]:
         return "midsize"
     if _STARTUP_SIZE_RE.search(text):
         return "startup"
-    return None
+    return _parse_employee_count(text)
 
 
 # ── Per-skill/task experience mentions (best-effort) ──────────────────────────

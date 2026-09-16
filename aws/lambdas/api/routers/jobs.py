@@ -81,6 +81,10 @@ class BriefCompetitor(BaseModel):
     basis: str = Field(..., min_length=1, max_length=500)
 
 
+class JobAppliedUpdate(BaseModel):
+    applied: bool
+
+
 class InterviewBriefOutput(BaseModel):
     overview: str = Field(..., min_length=1, max_length=2000)
     industry_concepts: List[BriefTerm] = Field(default_factory=list, max_length=6)
@@ -205,14 +209,30 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
     def list_jobs(
         min_score: int = Query(0, ge=0, le=100),
         limit: int = Query(20, ge=1, le=100),
+        applied: bool | None = Query(None),
         user=Depends(get_current_user),
     ):
         items, next_key = db.get_user_jobs(
             user_id=user["user_id"],
             min_score=min_score,
             limit=limit,
+            applied=applied,
         )
         return {"items": items, "count": len(items)}
+
+    @router.patch("/{job_id}/applied")
+    def set_applied(
+        job_id: str = Path(..., min_length=1, max_length=128),
+        body: JobAppliedUpdate = ...,
+        user=Depends(get_current_user),
+    ):
+        # user_id comes from the authenticated session and is part of the DDB key,
+        # so a guessed job_id cannot touch a different user's job (same guard as
+        # create_interview_brief above).
+        ok = db.set_job_applied(user["user_id"], job_id, body.applied)
+        if not ok:
+            raise HTTPException(404, "Job not found")
+        return {"job_id": job_id, "applied": body.applied}
 
     @router.post("/{job_id}/interview-brief")
     async def create_interview_brief(
