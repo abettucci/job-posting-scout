@@ -186,6 +186,7 @@ export type SearchSource =
   | "arbeitnow"
   | "compujobs"
   | "onlinejobs"
+  | "yc"
   | "multi_board";
 
 export type Seniority = "" | "internship" | "entry" | "associate" | "mid" | "senior" | "staff" | "director" | "executive";

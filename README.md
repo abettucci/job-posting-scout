@@ -25,10 +25,10 @@ Each user configures their own searches and candidate profile (must-have skills,
 | Type | Sources | How it works |
 |---|---|---|
 | LinkedIn (specific URL) | LinkedIn | Playwright scrapes a saved search URL you paste yourself — full control over LinkedIn's own filters (time posted, boolean keywords, etc.) |
-| Multi-board (profile search) | LinkedIn + RemoteOK + Working Nomads + Remotive + Arbeitnow | One search — job title, seniority, location — fanned out across all five: a LinkedIn URL is auto-built (seniority maps to LinkedIn's native `f_E` experience-level filter), and the job title is used as the keyword filter on the other four |
+| Multi-board (profile search) | LinkedIn + RemoteOK + Working Nomads + Remotive + Arbeitnow + CompuJobs + OnlineJobs.ph + Y Combinator | One search — job title, seniority, location — fanned out across every source: a LinkedIn URL is auto-built (seniority maps to LinkedIn's native `f_E` experience-level filter), and the job title is used as the keyword filter on the other boards. YC contributes public Buenos Aires and worldwide-remote listings. |
 | ATS (per-company) | Greenhouse, Lever, Ashby, Workable, SmartRecruiters | Public API per company slug (e.g. `stripe`), filtered by keywords/location |
 
-Seniority is only a real, structured filter on LinkedIn — none of the four aggregator boards expose a seniority field, so a multi-board search doesn't apply it to them (see `handler.py`'s "Multi-board fan-out" section for why). Company size/type isn't filterable on any source yet; none of them expose it via a public API without a paid company-database lookup.
+Seniority is only a real, structured filter on LinkedIn — the other boards do not expose a compatible seniority field, so a multi-board search doesn't apply it to them (see `handler.py`'s "Multi-board fan-out" section for why). Company size/type isn't filterable on any source yet; none of them expose it via a public API without a paid company-database lookup.
 
 ## Stack
 
@@ -64,7 +64,7 @@ linkedin-job-scout/
 │       ├── api/                   # FastAPI + Mangum (auth, searches, profile, jobs, interviews)
 │       ├── scraper/               # Playwright scraper + handler
 │       │   └── providers/         # ATS (greenhouse, lever, ashby, workable, smartrecruiters) +
-│       │                          # aggregator (remoteok, workingnomads, remotive, arbeitnow) fetchers
+│       │                          # aggregator fetchers (including YC public listings)
 │       ├── telegram_bot/          # Webhook handler (/start, /status, /pause, /resume)
 │       ├── Dockerfile.api
 │       ├── Dockerfile.scraper     # Includes Chromium

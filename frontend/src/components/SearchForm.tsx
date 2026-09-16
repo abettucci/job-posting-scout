@@ -31,7 +31,7 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
     id: "multi_board",
     label: "Multi-board (all boards)",
     placeholder: "",
-    help: "One profile-shaped search, fanned out across LinkedIn (auto-built URL) + RemoteOK + Working Nomads + Remotive + Arbeitnow + CompuJobs + OnlineJobs.ph.",
+    help: "One profile-shaped search, fanned out across LinkedIn (auto-built URL) + RemoteOK + Working Nomads + Remotive + Arbeitnow + CompuJobs + OnlineJobs.ph + Y Combinator.",
   },
   {
     id: "greenhouse",
@@ -99,9 +99,15 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
     placeholder: "",
     help: "Philippines remote/VA jobs board. Requires keywords below. Company name and location aren't available from this source (every posting shows as company-less, \"Remote\"). No public API — HTML scraping.",
   },
+  {
+    id: "yc",
+    label: "Y Combinator",
+    placeholder: "",
+    help: "Public YC Startup Jobs listings: automatically combines Buenos Aires roles with worldwide-remote roles. Requires keywords below.",
+  },
 ];
 
-const AGGREGATOR_SOURCES: SearchSource[] = ["remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs"];
+const AGGREGATOR_SOURCES: SearchSource[] = ["remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc"];
 
 export default function SearchForm({ onCreated, onCancel }: Props) {
   const [source, setSource] = useState<SearchSource>("linkedin");
@@ -239,7 +245,7 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
             </select>
             <p className="text-xs text-slate-500 mt-1">
               Applied natively on LinkedIn (its Experience level filter). The other boards (RemoteOK, Working
-              Nomads, Remotive, Arbeitnow) have no structured seniority field, so this only narrows LinkedIn.
+              Nomads, Remotive, Arbeitnow, and Y Combinator) have no structured seniority field, so this only narrows LinkedIn.
             </p>
           </div>
           <p className="text-xs text-slate-500">

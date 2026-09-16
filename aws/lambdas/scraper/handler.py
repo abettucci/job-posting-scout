@@ -83,7 +83,7 @@ async def _fetch_ats(source: str, slug: str, label: str, keywords: str, location
 # feeds — a single fetch returns postings from many companies, so there is no
 # slug to key on. Keywords act as the primary filter to keep volume sane.
 
-_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs"}
+_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc"}
 
 
 async def _fetch_aggregator(source: str, keywords: str, location_filter: str) -> List[Dict]:
@@ -100,6 +100,8 @@ async def _fetch_aggregator(source: str, keywords: str, location_filter: str) ->
         from providers.compujobs import fetch_jobs
     elif source == "onlinejobs":
         from providers.onlinejobs import fetch_jobs
+    elif source == "yc":
+        from providers.yc import fetch_jobs
     else:
         logger.warning(f"Unknown aggregator source: {source}")
         return []
