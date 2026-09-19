@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from anthropic import Anthropic
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -88,42 +89,113 @@ def _extract_json(raw: str) -> Dict[str, Any]:
     return json.loads(raw[start : end + 1])
 
 
-def score_job(client: Anthropic, job: Dict, profile: Dict) -> Dict[str, Any]:
-    prompt = _PROMPT.format(
+class ScoringUnavailableError(RuntimeError):
+    """No configured scoring provider could complete this request."""
+
+
+class ScoringRouter:
+    """Use the primary scorer first, then an owner-configured compatible fallback.
+
+    The fallback is intentionally opt-in. It does not create accounts, rotate
+    identities, or attempt to bypass any provider's quota or usage policy.
+    """
+
+    def __init__(
+        self,
+        anthropic_api_key: str,
+        fallback_base_url: str = "",
+        fallback_api_key: str = "",
+        fallback_model: str = "auto",
+    ):
+        self._anthropic = Anthropic(api_key=anthropic_api_key) if anthropic_api_key else None
+        self._fallback_base_url = fallback_base_url.rstrip("/")
+        self._fallback_api_key = fallback_api_key
+        self._fallback_model = fallback_model
+
+    @property
+    def fallback_enabled(self) -> bool:
+        return bool(self._fallback_base_url and self._fallback_api_key)
+
+    def score(self, job: Dict, profile: Dict) -> Dict[str, Any]:
+        prompt = _build_prompt(job, profile)
+        errors: list[str] = []
+
+        if self._anthropic:
+            try:
+                response = self._anthropic.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=1024,
+                    system=_SYSTEM,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                if response.stop_reason == "max_tokens":
+                    logger.warning("Primary scoring response truncated for %r", job.get("title"))
+                return _normalize_result(_extract_json(response.content[0].text), provider="anthropic")
+            except Exception as exc:
+                errors.append(f"anthropic:{type(exc).__name__}")
+                logger.warning("Primary scorer unavailable for %r: %s", job.get("title"), type(exc).__name__)
+
+        if self.fallback_enabled:
+            try:
+                return self._score_openai_compatible(prompt)
+            except Exception as exc:
+                errors.append(f"fallback:{type(exc).__name__}")
+                logger.warning("Fallback scorer unavailable for %r: %s", job.get("title"), type(exc).__name__)
+
+        detail = ", ".join(errors) if errors else "no scoring provider configured"
+        raise ScoringUnavailableError(detail)
+
+    def _score_openai_compatible(self, prompt: str) -> Dict[str, Any]:
+        # OmniRoute and many self-hosted gateways expose this standard path.
+        endpoint = self._fallback_base_url
+        if not endpoint.endswith("/chat/completions"):
+            endpoint = (
+                f"{endpoint}/chat/completions"
+                if endpoint.endswith("/v1")
+                else f"{endpoint}/v1/chat/completions"
+            )
+        response = requests.post(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {self._fallback_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self._fallback_model,
+                "max_tokens": 1024,
+                "messages": [
+                    {"role": "system", "content": _SYSTEM},
+                    {"role": "user", "content": prompt},
+                ],
+            },
+            timeout=45,
+        )
+        response.raise_for_status()
+        body = response.json()
+        raw = body["choices"][0]["message"]["content"]
+        return _normalize_result(_extract_json(raw), provider="fallback")
+
+
+def _build_prompt(job: Dict, profile: Dict) -> str:
+    return _PROMPT.format(
         profile_text=_profile_to_text(profile),
         title=job.get("title", ""),
         company=job.get("company", ""),
         location=job.get("location", ""),
-        description=(job.get("description", "")[:4000]),  # cap tokens
+        description=(job.get("description", "")[:4000]),
     )
 
-    raw = None
-    try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            system=_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        if response.stop_reason == "max_tokens":
-            logger.warning(f"score_job response truncated (max_tokens) for '{job.get('title')}'")
-        raw = response.content[0].text
-        result = _extract_json(raw)
-        # Normalize
-        result["score"] = max(0, min(100, int(result.get("score", 0))))
-        result["deal_breaker"] = bool(result.get("deal_breaker", False))
-        result.setdefault("reasons", [])
-        result.setdefault("summary", "")
-        result.setdefault("recommendation", "MAYBE")
-        return result
-    except Exception as e:
-        logger.error(
-            f"score_job error for '{job.get('title')}': {e} — raw response: {raw[:500] if raw else None!r}"
-        )
-        return {
-            "score": 0,
-            "deal_breaker": False,
-            "reasons": ["Error al puntuar"],
-            "summary": "",
-            "recommendation": "SKIP",
-        }
+
+def _normalize_result(result: Dict[str, Any], provider: str) -> Dict[str, Any]:
+    result["score"] = max(0, min(100, int(result.get("score", 0))))
+    result["deal_breaker"] = bool(result.get("deal_breaker", False))
+    result.setdefault("reasons", [])
+    result.setdefault("summary", "")
+    result.setdefault("recommendation", "MAYBE")
+    result["scoring_provider"] = provider
+    return result
+
+
+def score_job(router: ScoringRouter, job: Dict, profile: Dict) -> Dict[str, Any]:
+    """Score through the configured routing chain or raise when it is unavailable."""
+    return router.score(job, profile)

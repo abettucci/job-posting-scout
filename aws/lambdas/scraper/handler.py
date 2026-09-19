@@ -37,7 +37,7 @@ for _p in [_SHARED_LAMBDA, _SHARED_LOCAL]:
 from config import get_config
 from db import DynamoDBClient
 from telegram import TelegramClient, format_job_notification
-from scorer import score_job
+from scorer import ScoringRouter, ScoringUnavailableError, score_job
 from seniority import (
     SENIORITY_LEVELS,
     SENIORITY_TO_LINKEDIN_F_E,
@@ -47,13 +47,22 @@ from seniority import (
     extract_requirements,
 )
 
-from anthropic import Anthropic
 from linkedin import run_scraper
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 _MAX_SCORER_CALLS = int(os.environ.get("MAX_SCORER_CALLS_PER_RUN", "150"))
+_MAX_PENDING_RETRIES_PER_RUN = int(os.environ.get("MAX_PENDING_RETRIES_PER_RUN", "50"))
+
+
+def _scoring_router(cfg) -> ScoringRouter:
+    return ScoringRouter(
+        anthropic_api_key=cfg.anthropic_api_key,
+        fallback_base_url=cfg.omniroute_base_url,
+        fallback_api_key=cfg.omniroute_api_key,
+        fallback_model=cfg.omniroute_model,
+    )
 
 # ── ATS provider dispatch ─────────────────────────────────────────────────────
 
@@ -252,7 +261,7 @@ async def _rescore(user_id: str):
         telegram_codes_table=cfg.telegram_codes_table,
         region=cfg.region,
     )
-    anthropic = Anthropic(api_key=cfg.anthropic_api_key)
+    scorer = _scoring_router(cfg)
 
     profile = db.get_profile(user_id)
     if not profile:
@@ -281,7 +290,12 @@ async def _rescore(user_id: str):
         if scored >= _MAX_SCORER_CALLS:
             logger.warning(f"rescore: Claude cap ({_MAX_SCORER_CALLS}) reached, stopping early")
             break
-        result = score_job(anthropic, job, profile)
+        try:
+            result = score_job(scorer, job, profile)
+        except ScoringUnavailableError as exc:
+            _save_pending_scoring(db, user_id, job, str(exc))
+            logger.warning("rescore: scoring unavailable; keeping remaining jobs pending")
+            break
         scored += 1
         _save_scored_job(db, user_id, job, result, notified=False)
 
@@ -300,13 +314,18 @@ async def _main():
         region=cfg.region,
     )
     tg = TelegramClient(cfg.telegram_bot_token)
-    anthropic = Anthropic(api_key=cfg.anthropic_api_key)
+    scorer = _scoring_router(cfg)
 
     users = db.get_all_linked_users()
     if not users:
         logger.info("No linked users — nothing to do")
         return
     logger.info(f"Processing {len(users)} users")
+
+    # Retry only jobs that were explicitly deferred after all configured
+    # providers failed. They were saved but never treated as a SKIP, so a quota
+    # outage cannot silently lose an otherwise good opportunity.
+    await _retry_pending_scoring(db, users, scorer, tg)
 
     # ── Build per-source search maps ──────────────────────────────────────────
 
@@ -450,7 +469,11 @@ async def _main():
             _save_unscored(db, user_id, job)
             return
 
-        result = score_job(anthropic, job, profile)
+        try:
+            result = score_job(scorer, job, profile)
+        except ScoringUnavailableError as exc:
+            _save_pending_scoring(db, user_id, job, str(exc))
+            return
         scorer_calls += 1
         threshold = int(user.get("score_threshold", 75))
         should_notify = result["score"] >= threshold and not result["deal_breaker"]
@@ -486,7 +509,7 @@ async def _main():
 
 
 def _save_scored_job(db: DynamoDBClient, user_id: str, job: dict, result: dict, notified: bool):
-    db.save_job({
+    payload = {
         "user_id": user_id,
         "job_id": job["job_id"],
         "title": job.get("title", ""),
@@ -508,8 +531,15 @@ def _save_scored_job(db: DynamoDBClient, user_id: str, job: dict, result: dict, 
         "deal_breaker": result.get("deal_breaker", False),
         "recommendation": result.get("recommendation", "MAYBE"),
         "notified": notified,
+        "scoring_status": "scored",
+        "scoring_provider": result.get("scoring_provider", "unknown"),
         "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    }
+    # Preserve queue choices if a saved job is reprocessed.
+    for field in ("applied", "applied_at", "dismissed", "dismissed_at"):
+        if field in job:
+            payload[field] = job[field]
+    db.save_job(payload)
 
 
 def _save_unscored(db: DynamoDBClient, user_id: str, job: dict):
@@ -535,5 +565,95 @@ def _save_unscored(db: DynamoDBClient, user_id: str, job: dict):
         "deal_breaker": False,
         "recommendation": "SKIP",
         "notified": False,
+        "scoring_status": "profile_missing",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
+
+
+def _save_pending_scoring(db: DynamoDBClient, user_id: str, job: dict, error: str):
+    """Persist an unscored job for automatic retry without exposing provider internals."""
+    prior_attempts = int(job.get("scoring_attempts", 0) or 0)
+    payload = {
+        "user_id": user_id,
+        "job_id": job["job_id"],
+        "title": job.get("title", ""),
+        "company": job.get("company", ""),
+        "location": job.get("location", ""),
+        "url": job.get("url", ""),
+        "description": job.get("description", "")[:6000],
+        "posted_date": job.get("posted_date"),
+        "seniority_level": job.get("seniority_level"),
+        "min_years_experience": job.get("min_years_experience"),
+        "region_scope": job.get("region_scope"),
+        "company_size_hint": job.get("company_size_hint"),
+        "company_size_source": job.get("company_size_source"),
+        "company_size_raw": job.get("company_size_raw"),
+        "experience_mentions": job.get("experience_mentions", []),
+        "score": 0,
+        "summary": "",
+        "reasons": ["Scoring pending — provider temporarily unavailable"],
+        "deal_breaker": False,
+        "recommendation": "MAYBE",
+        "notified": False,
+        "scoring_status": "pending",
+        "scoring_attempts": prior_attempts + 1,
+        # Keep this coarse and safe: no API response, credential, or provider
+        # payload is stored in the job record.
+        "scoring_error_class": error.split(":", 1)[0][:80],
+        "timestamp": job.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+    }
+    for field in ("applied", "applied_at", "dismissed", "dismissed_at"):
+        if field in job:
+            payload[field] = job[field]
+    db.save_job(payload)
+
+
+async def _retry_pending_scoring(
+    db: DynamoDBClient, users: List[Dict], scorer: ScoringRouter, tg: TelegramClient
+):
+    """Retry deferred jobs before fetching new ones; stop on a global outage."""
+    retried = 0
+    for user in users:
+        if retried >= _MAX_PENDING_RETRIES_PER_RUN:
+            break
+        profile = db.get_profile(user["user_id"]) or {}
+        if not profile:
+            continue
+        items: List[Dict] = []
+        last_key = None
+        while True:
+            page, last_key = db.get_user_jobs(
+                user_id=user["user_id"], min_score=0, limit=100, last_key=last_key
+            )
+            items.extend(page)
+            if not last_key:
+                break
+        pending = [
+            job for job in items
+            if job.get("scoring_status") == "pending"
+            # Jobs saved by versions before the resilient router used this
+            # neutral marker for an LLM outage. Recover them automatically too.
+            or "Error al puntuar" in job.get("reasons", [])
+        ]
+        for job in pending:
+            if retried >= _MAX_PENDING_RETRIES_PER_RUN:
+                break
+            job = _enrich_job(job)
+            mismatch = _seniority_mismatch(job, profile) or _region_mismatch(job, profile)
+            if mismatch:
+                _save_scored_job(db, user["user_id"], job, mismatch, notified=False)
+                continue
+            try:
+                result = score_job(scorer, job, profile)
+            except ScoringUnavailableError as exc:
+                _save_pending_scoring(db, user["user_id"], job, str(exc))
+                logger.warning("Pending scoring paused: no provider is currently available")
+                return
+            threshold = int(user.get("score_threshold", 75))
+            should_notify = result["score"] >= threshold and not result["deal_breaker"]
+            if should_notify and user.get("telegram_chat_id"):
+                tg.send_message(int(user["telegram_chat_id"]), format_job_notification(job, result))
+            _save_scored_job(db, user["user_id"], job, result, notified=should_notify)
+            retried += 1
+    if retried:
+        logger.info("Retried %s deferred scoring jobs", retried)

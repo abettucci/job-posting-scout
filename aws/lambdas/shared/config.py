@@ -21,6 +21,9 @@ class Config:
     company_size_cache_table: str
     telegram_bot_token: str
     anthropic_api_key: str
+    omniroute_base_url: str
+    omniroute_api_key: str
+    omniroute_model: str
     jwt_secret: str
     linkedin_email: str
     linkedin_password: str
@@ -58,6 +61,12 @@ def get_config() -> Config:
         company_size_cache_table=os.environ.get("COMPANY_SIZE_CACHE_TABLE", ""),
         telegram_bot_token=secrets.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN", ""),
         anthropic_api_key=secrets.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", ""),
+        # Optional OpenAI-compatible fallback. OmniRoute is one possible
+        # gateway, but this deliberately works with any endpoint the owner
+        # controls; no provider account rotation is performed by the app.
+        omniroute_base_url=secrets.get("OMNIROUTE_BASE_URL") or os.environ.get("OMNIROUTE_BASE_URL", ""),
+        omniroute_api_key=secrets.get("OMNIROUTE_API_KEY") or os.environ.get("OMNIROUTE_API_KEY", ""),
+        omniroute_model=secrets.get("OMNIROUTE_MODEL") or os.environ.get("OMNIROUTE_MODEL", "auto"),
         jwt_secret=secrets.get("JWT_SECRET") or os.environ.get("JWT_SECRET", "change-me"),
         linkedin_email=secrets.get("LINKEDIN_EMAIL") or os.environ.get("LINKEDIN_EMAIL", ""),
         linkedin_password=secrets.get("LINKEDIN_PASSWORD") or os.environ.get("LINKEDIN_PASSWORD", ""),

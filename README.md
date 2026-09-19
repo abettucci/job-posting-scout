@@ -117,10 +117,19 @@ Required secrets:
 | `TELEGRAM_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) |
 | `TELEGRAM_WEBHOOK_SECRET` | Any random 32+ char string (`openssl rand -hex 32`) |
 | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) |
+| `OMNIROUTE_BASE_URL` *(optional)* | Your OpenAI-compatible OmniRoute/gateway base URL |
+| `OMNIROUTE_API_KEY` *(optional)* | API key for that gateway |
+| `OMNIROUTE_MODEL` *(optional)* | Fallback model; defaults to `auto` |
 | `JWT_SECRET` | Any random 32+ char string |
 | `LINKEDIN_EMAIL` | Your LinkedIn account |
 | `LINKEDIN_PASSWORD` | Your LinkedIn account |
 | `FRONTEND_URL` | Your Vercel deployment URL |
+
+The fallback is used only after Anthropic fails due to quota, rate limiting, or
+an outage. Both `OMNIROUTE_BASE_URL` and `OMNIROUTE_API_KEY` must be present
+to enable it. The scraper never creates or rotates accounts: configure only
+providers and budgets you own. If every provider is unavailable, each new job
+is saved as `pending` and retried automatically on later scheduled runs.
 
 ### 2. First deploy (CloudFormation + ECR repos)
 
