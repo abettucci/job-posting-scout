@@ -74,9 +74,9 @@ export const api = {
     }),
 
   // Jobs
-  getJobs: (minScore = 0, limit = 20, applied?: boolean) =>
+  getJobs: (minScore = 0, limit = 20, applied?: boolean, dismissed?: boolean) =>
     req<{ items: Job[]; count: number }>(
-      `/jobs?min_score=${minScore}&limit=${limit}${applied !== undefined ? `&applied=${applied}` : ""}`
+      `/jobs?min_score=${minScore}&limit=${limit}${applied !== undefined ? `&applied=${applied}` : ""}${dismissed !== undefined ? `&dismissed=${dismissed}` : ""}`
     ),
   createInterviewBrief: (jobId: string) =>
     req<InterviewBrief>(`/jobs/${encodeURIComponent(jobId)}/interview-brief`, { method: "POST" }),
@@ -84,6 +84,11 @@ export const api = {
     req<{ job_id: string; applied: boolean }>(`/jobs/${encodeURIComponent(jobId)}/applied`, {
       method: "PATCH",
       body: JSON.stringify({ applied }),
+    }),
+  setJobDismissed: (jobId: string, dismissed: boolean) =>
+    req<{ job_id: string; dismissed: boolean }>(`/jobs/${encodeURIComponent(jobId)}/dismissed`, {
+      method: "PATCH",
+      body: JSON.stringify({ dismissed }),
     }),
 
   // Scraper
@@ -289,6 +294,8 @@ export interface Job {
   // all — treat undefined/missing the same as false everywhere this is read.
   applied?: boolean;
   applied_at?: string | null;
+  dismissed?: boolean;
+  dismissed_at?: string | null;
 }
 
 export interface InterviewBriefSource {

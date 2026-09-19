@@ -49,6 +49,7 @@ function companyResearchLinks(company: string): { label: string; url: string }[]
   const siteSearch = (site: string, extra = "") =>
     `https://www.google.com/search?q=site:${site}+${q}${extra ? `+${encodeURIComponent(extra)}` : ""}`;
   return [
+    { label: "Inforegister company data", url: siteSearch("inforegister.ee") },
     { label: "Trustpilot reviews", url: siteSearch("trustpilot.com") },
     { label: "Crunchbase profile", url: siteSearch("crunchbase.com") },
     { label: "Glassdoor reviews", url: siteSearch("glassdoor.com", "reviews") },

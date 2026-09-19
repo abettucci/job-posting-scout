@@ -172,26 +172,25 @@ def _enrich_job(job: Dict) -> Dict:
 
 def _seniority_mismatch(job: Dict, profile: Dict) -> Dict | None:
     """Hard-filter check: if the candidate declared a seniority level in their
-    profile and the job's own extracted level is far enough from it, skip
+    profile and the job's own extracted level is different, skip
     Claude entirely and return a synthetic deal-breaker result (same shape as
-    score_job()'s return value). A gap of 2+ ordinal SENIORITY_LEVELS steps
-    (e.g. entry vs. director) is treated as a hard mismatch; adjacent levels
-    (e.g. entry vs. associate) are left for Claude to judge normally, since
-    postings are rarely that precise about level anyway."""
+    score_job()'s return value). The title classifier deliberately separates
+    Mid, Senior, and Staff/Principal, so an explicitly labelled "Senior"
+    posting must not pass a Mid-level preference just because LinkedIn groups
+    both under its broad native "Mid-Senior" bucket."""
     candidate_level = profile.get("seniority")
     job_level = job.get("seniority_level")
     if not candidate_level or not job_level:
         return None
     if candidate_level not in SENIORITY_LEVELS or job_level not in SENIORITY_LEVELS:
         return None
-    gap = abs(SENIORITY_LEVELS.index(candidate_level) - SENIORITY_LEVELS.index(job_level))
-    if gap < 2:
+    if candidate_level == job_level:
         return None
     return {
         "score": 0,
         "deal_breaker": True,
         "reasons": [f"❌ Seniority mismatch: posting reads as '{job_level}', your profile is '{candidate_level}'"],
-        "summary": "Filtered automatically before scoring — seniority gap too large.",
+        "summary": "Filtered automatically before scoring — seniority does not match your preference.",
         "recommendation": "SKIP",
     }
 

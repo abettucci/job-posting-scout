@@ -90,7 +90,7 @@ export default function JobsPage() {
     // Explicitly request only the active queue. Older rows with no `applied`
     // attribute are treated as not applied by the API, so this also works for
     // every job saved before the feature existed.
-    api.getJobs(minScore, 50, false).then((r) => setJobs(r.items)).finally(() => setFetching(false));
+    api.getJobs(minScore, 50, false, false).then((r) => setJobs(r.items)).finally(() => setFetching(false));
   }, [user, minScore]);
 
   useEffect(() => {
@@ -131,6 +131,10 @@ export default function JobsPage() {
     const expYears = expYearsFilter.trim() === "" ? null : Number(expYearsFilter);
 
     const filtered = jobs.filter((j) => {
+      // These jobs were rejected by a deterministic eligibility rule (for
+      // example, Germany-only when the profile allows Argentina/LATAM). Keep
+      // the record for auditability, but don't make the active queue noisy.
+      if (j.deal_breaker) return false;
       if (terms.length > 0 && !terms.some((t) => j.title.toLowerCase().includes(t))) return false;
       if (seniorityFilter && j.seniority_level !== seniorityFilter) return false;
       if (years !== null && j.min_years_experience !== null && j.min_years_experience > years) return false;
@@ -163,10 +167,10 @@ export default function JobsPage() {
   return (
     <>
       <Nav />
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-        <div>
+      <main id="main-content" className="page-shell">
+        <div className="border-b pb-6" style={{ borderColor: "var(--line)" }}>
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <h1 className="font-semibold text-slate-900 dark:text-white text-lg">All Jobs</h1>
+            <div><p className="eyebrow">Match queue</p><h1 className="page-title mt-1">All jobs</h1></div>
             <div className="flex items-center gap-2 text-sm">
               <label className="text-slate-600 dark:text-slate-400">Min score:</label>
               <div className="flex gap-1">
@@ -174,11 +178,8 @@ export default function JobsPage() {
                   <button
                     key={v}
                     onClick={() => setMinScore(v)}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                      minScore === v
-                        ? "bg-brand text-white"
-                        : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                    }`}
+                    aria-pressed={minScore === v}
+                    className="filter-chip"
                   >
                     {v === 0 ? "All" : `${v}+`}
                   </button>
@@ -206,6 +207,7 @@ export default function JobsPage() {
           )}
         </div>
 
+        <section className="card space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-2 flex-wrap">
             <input
@@ -250,11 +252,8 @@ export default function JobsPage() {
                 <button
                   key={o.id}
                   onClick={() => setSortBy(o.id)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                    sortBy === o.id
-                      ? "bg-brand text-white"
-                      : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
+                    aria-pressed={sortBy === o.id}
+                    className="filter-chip"
                 >
                   {o.label}
                 </button>
@@ -270,11 +269,8 @@ export default function JobsPage() {
               <button
                 key={o.id}
                 onClick={() => setSeniorityFilter(o.id)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  seniorityFilter === o.id
-                    ? "bg-brand text-white"
-                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
+                aria-pressed={seniorityFilter === o.id}
+                className="filter-chip"
               >
                 {o.label}
               </button>
@@ -289,11 +285,8 @@ export default function JobsPage() {
               <button
                 key={o.id}
                 onClick={() => setRegionFilter(o.id)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  regionFilter === o.id
-                    ? "bg-brand text-white"
-                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
+                aria-pressed={regionFilter === o.id}
+                className="filter-chip"
               >
                 {o.label}
               </button>
@@ -308,11 +301,8 @@ export default function JobsPage() {
               <button
                 key={o.id}
                 onClick={() => setCompanySizeFilter(o.id)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  companySizeFilter === o.id
-                    ? "bg-brand text-white"
-                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
+                aria-pressed={companySizeFilter === o.id}
+                className="filter-chip"
               >
                 {o.label}
               </button>
@@ -354,10 +344,14 @@ export default function JobsPage() {
                 onAppliedChange={(jobId, applied) => {
                   if (applied) setJobs((current) => current.filter((job) => job.job_id !== jobId));
                 }}
+                onDismissedChange={(jobId, dismissed) => {
+                  if (dismissed) setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                }}
               />
             ))}
           </div>
         )}
+        </section>
       </main>
     </>
   );

@@ -85,6 +85,10 @@ class JobAppliedUpdate(BaseModel):
     applied: bool
 
 
+class JobDismissedUpdate(BaseModel):
+    dismissed: bool
+
+
 class InterviewBriefOutput(BaseModel):
     overview: str = Field(..., min_length=1, max_length=2000)
     industry_concepts: List[BriefTerm] = Field(default_factory=list, max_length=6)
@@ -210,6 +214,7 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
         min_score: int = Query(0, ge=0, le=100),
         limit: int = Query(20, ge=1, le=100),
         applied: bool | None = Query(None),
+        dismissed: bool | None = Query(None),
         user=Depends(get_current_user),
     ):
         items, next_key = db.get_user_jobs(
@@ -217,6 +222,7 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
             min_score=min_score,
             limit=limit,
             applied=applied,
+            dismissed=dismissed,
         )
         return {"items": items, "count": len(items)}
 
@@ -233,6 +239,17 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
         if not ok:
             raise HTTPException(404, "Job not found")
         return {"job_id": job_id, "applied": body.applied}
+
+    @router.patch("/{job_id}/dismissed")
+    def set_dismissed(
+        job_id: str = Path(..., min_length=1, max_length=128),
+        body: JobDismissedUpdate = ...,
+        user=Depends(get_current_user),
+    ):
+        ok = db.set_job_dismissed(user["user_id"], job_id, body.dismissed)
+        if not ok:
+            raise HTTPException(404, "Job not found")
+        return {"job_id": job_id, "dismissed": body.dismissed}
 
     @router.post("/{job_id}/interview-brief")
     async def create_interview_brief(

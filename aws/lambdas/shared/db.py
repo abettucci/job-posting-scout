@@ -245,7 +245,7 @@ class DynamoDBClient:
         "Applied" tab sort by when you applied, not just posting/found date."""
         try:
             if applied:
-                update_expr = "SET applied = :applied, applied_at = :applied_at"
+                update_expr = "SET applied = :applied, applied_at = :applied_at REMOVE dismissed, dismissed_at"
                 values = {":applied": applied, ":applied_at": datetime.now(timezone.utc).isoformat()}
             else:
                 update_expr = "SET applied = :applied REMOVE applied_at"
@@ -263,6 +263,35 @@ class DynamoDBClient:
             logger.error(f"set_job_applied error: {e}")
             return False
 
+    def set_job_dismissed(self, user_id: str, job_id: str, dismissed: bool) -> bool:
+        """Dismiss or restore a job without deleting its history.
+
+        Dismissal and application are mutually exclusive queue states: moving a
+        job to Dismissed clears any application timestamp, while restoring it
+        returns it to the normal Jobs queue.
+        """
+        try:
+            if dismissed:
+                update_expr = "SET dismissed = :dismissed, dismissed_at = :dismissed_at REMOVE applied, applied_at"
+                values = {":dismissed": True, ":dismissed_at": datetime.now(timezone.utc).isoformat()}
+            else:
+                update_expr = "REMOVE dismissed, dismissed_at"
+                values = None
+            kwargs: Dict[str, Any] = {
+                "Key": {"user_id": user_id, "job_id": job_id},
+                "ConditionExpression": Attr("job_id").exists(),
+                "UpdateExpression": update_expr,
+            }
+            if values is not None:
+                kwargs["ExpressionAttributeValues"] = values
+            self.jobs.update_item(**kwargs)
+            return True
+        except self.jobs.meta.client.exceptions.ConditionalCheckFailedException:
+            return False
+        except Exception as e:
+            logger.error(f"set_job_dismissed error: {e}")
+            return False
+
     def get_user_jobs(
         self,
         user_id: str,
@@ -270,6 +299,7 @@ class DynamoDBClient:
         limit: int = 50,
         last_key: Optional[Dict] = None,
         applied: Optional[bool] = None,
+        dismissed: Optional[bool] = None,
     ) -> tuple[List[Dict], Optional[Dict]]:
         try:
             filter_expr = Attr("score").gte(min_score)
@@ -279,6 +309,11 @@ class DynamoDBClient:
                 filter_expr = filter_expr & (
                     Attr("applied").eq(True) if applied
                     else (Attr("applied").not_exists() | Attr("applied").eq(False))
+                )
+            if dismissed is not None:
+                filter_expr = filter_expr & (
+                    Attr("dismissed").eq(True) if dismissed
+                    else (Attr("dismissed").not_exists() | Attr("dismissed").eq(False))
                 )
             # DynamoDB applies FilterExpression *after* Limit. Keep querying
             # until we have a useful page of matching jobs; otherwise a user

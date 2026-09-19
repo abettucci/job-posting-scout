@@ -62,7 +62,13 @@ _SENIORITY_PATTERNS = [
 # free-form description text, not a structured field like posted_date's source
 # APIs, so this can miss or misfire; callers must treat a None as "unknown",
 # never as "no requirement".
-_YEARS_RE = re.compile(r"(\d{1,2})\+?\s*(?:to|-)?\s*(?:\d{1,2})?\s*years?\s*(?:of\s+)?(?:experience|exp\b)", re.I)
+_YEARS_RE = re.compile(
+    r"\b(?:at\s+least|minimum\s+of|minimum:?)?\s*"
+    r"(\d{1,2})\+?\s*(?:to|-)?\s*(?:\d{1,2})?\s*years?\s*"
+    r"(?:of\s+)?(?:hands-on\s+|commercial\s+|professional\s+|relevant\s+|practical\s+)?"
+    r"(?:experience|exp\b)",
+    re.I,
+)
 
 
 def extract_requirements(title: str, description: str) -> Dict[str, Optional[object]]:
@@ -80,11 +86,16 @@ def extract_requirements(title: str, description: str) -> Dict[str, Optional[obj
             break
 
     min_years_experience: Optional[int] = None
-    match = _YEARS_RE.search(description or "")
-    if match:
-        years = int(match.group(1))
-        if 0 < years <= 20:  # sanity bound against stray digits unrelated to experience
-            min_years_experience = years
+    years_found = [
+        int(match.group(1))
+        for match in _YEARS_RE.finditer(description or "")
+        if 0 < int(match.group(1)) <= 20
+    ]
+    if years_found:
+        # A posting can list several requirements (e.g. 3 years Python and 5
+        # years backend). The smallest explicit experience bar is the honest
+        # overall minimum; the per-skill details remain in experience_mentions.
+        min_years_experience = min(years_found)
 
     return {"seniority_level": seniority_level, "min_years_experience": min_years_experience}
 
@@ -118,17 +129,19 @@ _RESTRICTED_RE = re.compile(
     # specific non-LATAM countries commonly seen on these boards
     r"germany|deutschland|france|united\s+kingdom|uk|poland|netherlands|spain|espa[nñ]a|italy|italia|"
     r"portugal|ireland|sweden|switzerland|austria|belgium|denmark|norway|finland|canada|"
-    r"united\s+states|usa|u\.s\.a?\.?|australia|india|philippines|japan|singapore|south\s+africa"
+    r"united\s+states|usa|u\.s\.a?\.?|australia|india|philippines|japan|singapore|south\s+africa|"
+    r"gauteng|western\s+cape|kwazulu[\s-]?natal"
     r"|"
     # explicit restriction phrasing
     r"us[\s-]?only|usa[\s-]?only|uk[\s-]?only|eu[\s-]?only|europe[\s-]?only|emea[\s-]?only|apac[\s-]?only|"
     r"must\s+be\s+(?:based|located|residing)\s+in|authorized\s+to\s+work\s+in"
     r"|"
     # major non-LATAM cities — catches "City (Remote)" postings with no country named
-    r"berlin|munich|m[uü]nchen|hamburg|frankfurt|cologne|k[oö]ln|stuttgart|d[uü]sseldorf|"
-    r"amsterdam|rotterdam|paris|warsaw|warszawa|krak[oó]w|madrid|barcelona|milan|milano|rome|roma|"
+    r"berlin|munich|m[uü]nchen|hamburg|frankfurt|cologne|k[oö]ln|stuttgart|d[uü]sseldorf|werne|"
+    r"amsterdam|rotterdam|paris|warsaw|warszawa|krak[oó]w|wroc[lł]aw|gda[nń]sk|pozna[nń]|"
+    r"madrid|barcelona|milan|milano|rome|roma|"
     r"dublin|vienna|wien|zurich|z[uü]rich|geneva|brussels|copenhagen|stockholm|oslo|helsinki|"
-    r"london|manchester|toronto|vancouver|sydney|melbourne"
+    r"london|manchester|toronto|vancouver|sydney|melbourne|johannesburg|cape\s+town|durban"
     r")\b", re.I,
 )
 

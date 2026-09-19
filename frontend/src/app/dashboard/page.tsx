@@ -27,10 +27,10 @@ export default function DashboardPage() {
     if (!user) return;
     Promise.all([
       api.getSearches(),
-      api.getJobs(user.score_threshold, 10, false),
+      api.getJobs(user.score_threshold, 10, false, false),
     ]).then(([s, j]) => {
       setSearches(s);
-      setJobs(j.items);
+      setJobs(j.items.filter((job) => !job.deal_breaker));
     }).finally(() => setFetching(false));
   }, [user]);
 
@@ -66,7 +66,17 @@ export default function DashboardPage() {
   return (
     <>
       <Nav />
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-8">
+      <main id="main-content" className="page-shell">
+        <section className="grid lg:grid-cols-[1fr_auto] gap-6 items-end border-b pb-8" style={{ borderColor: "var(--line)" }}>
+          <div>
+            <p className="eyebrow">Your search desk</p>
+            <h1 className="page-title mt-2">Find the role worth<br className="hidden sm:block" /> applying to.</h1>
+            <p className="mt-3 max-w-xl text-sm leading-6" style={{ color: "var(--ink-muted)" }}>A focused view of the searches, signals and job matches that deserve your attention today.</p>
+          </div>
+          <button onClick={handleRunScraper} disabled={runningScaper} className="btn-primary text-sm">
+            {runningScaper ? "Checking sources…" : "Run a fresh scan"}
+          </button>
+        </section>
         {/* Stats row */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
@@ -75,33 +85,26 @@ export default function DashboardPage() {
             { label: "Jobs found", value: jobs.length },
             { label: "Score threshold", value: `${user.score_threshold}/100` },
           ].map((s) => (
-            <div key={s.label} className="card text-center">
-              <p className="text-2xl font-bold text-slate-900 dark:text-white">{s.value}</p>
-              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{s.label}</p>
+            <div key={s.label} className="card">
+              <p className="text-3xl font-black tracking-[-0.06em] text-slate-900 dark:text-white">{s.value}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mt-1">{s.label}</p>
             </div>
           ))}
         </div>
 
         {/* Manual scraper trigger */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRunScraper}
-            disabled={runningScaper}
-            className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {runningScaper ? "Triggering…" : "Run Scraper Now"}
-          </button>
-          {scraperMsg && (
+        {scraperMsg && (
+          <div role="status" aria-live="polite" className="card py-3">
             <p className={`text-xs ${scraperMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
               {scraperMsg}
             </p>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Searches */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-slate-900 dark:text-white">My Searches</h2>
+            <div><p className="eyebrow">Automations</p><h2 className="text-xl font-black tracking-[-0.04em] text-slate-900 dark:text-white">My searches</h2></div>
             {!showForm && (
               <button onClick={() => setShowForm(true)} className="btn-primary text-sm">
                 + Add Search
@@ -164,7 +167,7 @@ export default function DashboardPage() {
         {/* Recent high-score jobs */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-slate-900 dark:text-white">Recent Matches</h2>
+            <div><p className="eyebrow">Match queue</p><h2 className="text-xl font-black tracking-[-0.04em] text-slate-900 dark:text-white">Recent matches</h2></div>
             <a href="/jobs" className="text-sm text-brand hover:text-brand-light transition-colors">
               View all →
             </a>
@@ -182,7 +185,16 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-3">
               {jobs.map((j) => (
-                <JobCard key={j.job_id} job={j} />
+                <JobCard
+                  key={j.job_id}
+                  job={j}
+                  onAppliedChange={(jobId, applied) => {
+                    if (applied) setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                  }}
+                  onDismissedChange={(jobId, dismissed) => {
+                    if (dismissed) setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                  }}
+                />
               ))}
             </div>
           )}

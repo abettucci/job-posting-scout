@@ -142,8 +142,8 @@ export default function ProfileEditor({ initial, onSaved }: Props) {
       <div>
         <label className="label">Your Seniority</label>
         <p className="text-xs text-slate-500 mb-2">
-          If set, postings whose own level reads as far off from this (e.g. Entry vs. Director) are
-          automatically filtered out before scoring — a hard filter, not just a scoring hint.
+          If set, postings whose title clearly identifies a different level (e.g. Mid-level vs. Senior) are
+          automatically filtered out before scoring. This avoids LinkedIn&apos;s broad “Mid-Senior” bucket mixing them.
         </p>
         <select
           className="input"

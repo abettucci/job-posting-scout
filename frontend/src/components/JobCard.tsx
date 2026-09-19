@@ -6,10 +6,9 @@ import { api, type Job } from "@/lib/api";
 
 interface Props {
   job: Job;
-  // Lets the parent page drop the job from its own list (Jobs page) or move
-  // it (Applied page) without refetching — see jobs/page.tsx and
-  // applied/page.tsx for the two different reactions to the same event.
+  // Lets each queue update instantly after an action, without a refetch.
   onAppliedChange?: (jobId: string, applied: boolean) => void;
+  onDismissedChange?: (jobId: string, dismissed: boolean) => void;
 }
 
 function ScoreBadge({ score }: { score: number }) {
@@ -70,9 +69,10 @@ function RecBadge({ rec }: { rec: Job["recommendation"] }) {
   );
 }
 
-export default function JobCard({ job, onAppliedChange }: Props) {
+export default function JobCard({ job, onAppliedChange, onDismissedChange }: Props) {
   const router = useRouter();
   const [applying, setApplying] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
   const foundDate = new Date(job.timestamp).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -96,15 +96,28 @@ export default function JobCard({ job, onAppliedChange }: Props) {
     }
   };
 
+  const handleToggleDismissed = async () => {
+    const next = !job.dismissed;
+    setDismissing(true);
+    try {
+      await api.setJobDismissed(job.job_id, next);
+      onDismissedChange?.(job.job_id, next);
+    } catch (err) {
+      console.error("Failed to update dismissed status", err);
+    } finally {
+      setDismissing(false);
+    }
+  };
+
   return (
-    <div className="card space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+    <article className="card space-y-4 hover:-translate-y-0.5 hover:border-orange-300 dark:hover:border-orange-400/50 transition-all duration-200">
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="min-w-0">
           <a
             href={job.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-semibold text-slate-900 dark:text-white hover:text-brand transition-colors truncate block"
+            className="font-bold text-lg text-slate-900 dark:text-white hover:text-brand transition-colors block"
           >
             {job.title}
           </a>
@@ -187,7 +200,7 @@ export default function JobCard({ job, onAppliedChange }: Props) {
         <p className="text-sm text-slate-600 dark:text-slate-400 italic leading-relaxed">{job.summary}</p>
       )}
 
-      <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
+      <div className="flex items-center justify-between border-t pt-3 flex-wrap gap-2" style={{ borderColor: "var(--line)" }}>
         <div className="flex items-center gap-3 text-xs text-slate-500">
           {postedDate && <span>Posted {postedDate}</span>}
           <span>Found {foundDate}</span>
@@ -217,17 +230,31 @@ export default function JobCard({ job, onAppliedChange }: Props) {
           >
             + Track Interview
           </button>
+          {!job.dismissed && (
+            <button
+              onClick={handleToggleApplied}
+              disabled={applying}
+              title={job.applied ? "Move back to Jobs" : "Move to Applied"}
+              className={`text-xs transition-colors disabled:opacity-50 ${
+                job.applied
+                  ? "text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              }`}
+            >
+              {applying ? "…" : job.applied ? "✅ Applied" : "+ Applied"}
+            </button>
+          )}
           <button
-            onClick={handleToggleApplied}
-            disabled={applying}
-            title={job.applied ? "Move back to Jobs" : "Move to Applied"}
+            onClick={handleToggleDismissed}
+            disabled={dismissing}
+            title={job.dismissed ? "Restore to Jobs" : "Move to Dismissed"}
             className={`text-xs transition-colors disabled:opacity-50 ${
-              job.applied
-                ? "text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              job.dismissed
+                ? "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                : "text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400"
             }`}
           >
-            {applying ? "…" : job.applied ? "✅ Applied" : "+ Applied"}
+            {dismissing ? "…" : job.dismissed ? "↩ Restore" : "× Dismiss"}
           </button>
           <a
             href={job.url}
@@ -239,6 +266,6 @@ export default function JobCard({ job, onAppliedChange }: Props) {
           </a>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
