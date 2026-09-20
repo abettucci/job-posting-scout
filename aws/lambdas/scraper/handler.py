@@ -56,6 +56,23 @@ _MAX_SCORER_CALLS = int(os.environ.get("MAX_SCORER_CALLS_PER_RUN", "150"))
 _MAX_PENDING_RETRIES_PER_RUN = int(os.environ.get("MAX_PENDING_RETRIES_PER_RUN", "50"))
 
 
+def _is_senior_title(title: str) -> bool:
+    """Keep title-level Senior roles out of Telegram without regex matching."""
+    return "senior" in (title or "").casefold()
+
+
+def _should_notify(job: Dict, result: Dict, threshold: int) -> bool:
+    """Strict, notification-only gate; jobs remain saved regardless of outcome."""
+    return (
+        result["score"] >= threshold
+        and not result["deal_breaker"]
+        and not _is_senior_title(job.get("title", ""))
+        # This is produced by the scoring model from the full posting text,
+        # rather than inferred by a location regex.
+        and result.get("notification_location_allowed") is True
+    )
+
+
 def _scoring_router(cfg) -> ScoringRouter:
     return ScoringRouter(
         anthropic_api_key=cfg.anthropic_api_key,
@@ -473,10 +490,12 @@ async def _main():
             result = score_job(scorer, job, profile)
         except ScoringUnavailableError as exc:
             _save_pending_scoring(db, user_id, job, str(exc))
+            _notify_scoring_outage(db, tg, user)
             return
+        _notify_scoring_recovery(db, tg, user)
         scorer_calls += 1
         threshold = int(user.get("score_threshold", 75))
-        should_notify = result["score"] >= threshold and not result["deal_breaker"]
+        should_notify = _should_notify(job, result, threshold)
 
         if should_notify:
             chat_id = user.get("telegram_chat_id")
@@ -533,6 +552,8 @@ def _save_scored_job(db: DynamoDBClient, user_id: str, job: dict, result: dict, 
         "notified": notified,
         "scoring_status": "scored",
         "scoring_provider": result.get("scoring_provider", "unknown"),
+        "notification_location_allowed": result.get("notification_location_allowed"),
+        "notification_location_reason": result.get("notification_location_reason", ""),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     # Preserve queue choices if a saved job is reprocessed.
@@ -608,6 +629,55 @@ def _save_pending_scoring(db: DynamoDBClient, user_id: str, job: dict, error: st
     db.save_job(payload)
 
 
+def _notify_scoring_outage(db: DynamoDBClient, tg: TelegramClient, user: Dict):
+    """Open one user-visible incident instead of alerting once per job."""
+    if user.get("scoring_incident_open"):
+        return
+    chat_id = user.get("telegram_chat_id")
+    if not chat_id:
+        return
+    message = (
+        "⚠️ *Job Scout — scoring pausado*\n\n"
+        "No se pueden evaluar matches nuevos porque todos los proveedores de IA "
+        "configurados están temporalmente indisponibles o sin cuota.\n\n"
+        "Los postings nuevos se guardan como pendientes y se reintentarán "
+        "automáticamente. Te voy a avisar cuando el servicio se recupere."
+    )
+    if tg.send_message(int(chat_id), message):
+        db.update_user(
+            user["user_id"],
+            {
+                "scoring_incident_open": True,
+                "scoring_incident_started_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        # The in-memory user is shared through this run, so suppress duplicates
+        # before the next DynamoDB read too.
+        user["scoring_incident_open"] = True
+
+
+def _notify_scoring_recovery(db: DynamoDBClient, tg: TelegramClient, user: Dict):
+    """Close an open incident only after a scoring request succeeds."""
+    if not user.get("scoring_incident_open"):
+        return
+    chat_id = user.get("telegram_chat_id")
+    if chat_id:
+        tg.send_message(
+            int(chat_id),
+            "✅ *Job Scout — scoring recuperado*\n\n"
+            "Las evaluaciones volvieron a funcionar. Los postings pendientes "
+            "se están reintentando automáticamente.",
+        )
+    db.update_user(
+        user["user_id"],
+        {
+            "scoring_incident_open": False,
+            "scoring_incident_recovered_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    user["scoring_incident_open"] = False
+
+
 async def _retry_pending_scoring(
     db: DynamoDBClient, users: List[Dict], scorer: ScoringRouter, tg: TelegramClient
 ):
@@ -647,10 +717,12 @@ async def _retry_pending_scoring(
                 result = score_job(scorer, job, profile)
             except ScoringUnavailableError as exc:
                 _save_pending_scoring(db, user["user_id"], job, str(exc))
+                _notify_scoring_outage(db, tg, user)
                 logger.warning("Pending scoring paused: no provider is currently available")
                 return
+            _notify_scoring_recovery(db, tg, user)
             threshold = int(user.get("score_threshold", 75))
-            should_notify = result["score"] >= threshold and not result["deal_breaker"]
+            should_notify = _should_notify(job, result, threshold)
             if should_notify and user.get("telegram_chat_id"):
                 tg.send_message(int(user["telegram_chat_id"]), format_job_notification(job, result))
             _save_scored_job(db, user["user_id"], job, result, notified=should_notify)

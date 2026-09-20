@@ -34,7 +34,9 @@ Return JSON with this exact structure:
   "deal_breaker": <true if any deal_breaker condition is met, false otherwise>,
   "reasons": ["<short reason 1>", "<short reason 2>", ...],
   "summary": "<3-line plain-text summary of the role>",
-  "recommendation": "<APPLY | SKIP | MAYBE>"
+  "recommendation": "<APPLY | SKIP | MAYBE>",
+  "notification_location_allowed": <true | false>,
+  "notification_location_reason": "<short explanation>"
 }}
 
 Rules:
@@ -43,6 +45,13 @@ Rules:
 - reasons: max 5 bullet points, each starting with ✅ (match) or ❌ (mismatch)
 - summary: 3 short lines describing the role (no opinions)
 - recommendation: APPLY if score >= 70 and not deal_breaker, SKIP if score < 50 or deal_breaker, MAYBE otherwise
+- notification_location_allowed is a strict delivery rule, independent of score:
+  set true only when the posting is explicitly worldwide/global remote, or
+  explicitly Argentina/Buenos Aires. Read both Location and Description.
+  Set false for any country/region-specific remote role (for example
+  “remote in Poland”, “remote USA”, “US only”) and for ambiguous locations.
+  A bare “Remote” is allowed only when the posting does not state or imply a
+  country/region restriction elsewhere in its description.
 """
 
 
@@ -192,6 +201,12 @@ def _normalize_result(result: Dict[str, Any], provider: str) -> Dict[str, Any]:
     result.setdefault("reasons", [])
     result.setdefault("summary", "")
     result.setdefault("recommendation", "MAYBE")
+    # Fail closed: a malformed or older model response must never turn an
+    # ambiguous location into a Telegram notification.
+    result["notification_location_allowed"] = result.get("notification_location_allowed") is True
+    result["notification_location_reason"] = str(
+        result.get("notification_location_reason", "")
+    )[:240]
     result["scoring_provider"] = provider
     return result
 
