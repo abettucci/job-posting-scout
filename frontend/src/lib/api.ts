@@ -91,6 +91,12 @@ export const api = {
       body: JSON.stringify({ dismissed }),
     }),
 
+  // Conversational discovery
+  queryJobAssistant: (messages: JobAssistantMessage[]) =>
+    req<JobAssistantResponse>("/job-assistant/query", { method: "POST", body: JSON.stringify({ messages }) }),
+  monitorAssistantSearch: (data: JobAssistantIntent) =>
+    req<{ search: Search; triggered: boolean }>("/job-assistant/monitor", { method: "POST", body: JSON.stringify(data) }),
+
   // Scraper
   runScraper: () => req<{ triggered: boolean }>("/scraper/run", { method: "POST" }),
   rescoreJobs: () => req<{ triggered: boolean }>("/scraper/run?mode=rescore", { method: "POST" }),
@@ -185,6 +191,7 @@ export type SearchSource =
   | "ashby"
   | "workable"
   | "smartrecruiters"
+  | "workday"
   | "remoteok"
   | "workingnomads"
   | "remotive"
@@ -192,6 +199,7 @@ export type SearchSource =
   | "compujobs"
   | "onlinejobs"
   | "yc"
+  | "freehire"
   | "multi_board";
 
 export type Seniority = "" | "internship" | "entry" | "associate" | "mid" | "senior" | "staff" | "director" | "executive";
@@ -220,6 +228,25 @@ export interface CreateSearchPayload {
   location_filter?: string;
   job_title?: string;
   seniority?: Seniority;
+}
+
+export interface JobAssistantMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface JobAssistantIntent {
+  reply: string;
+  job_title: string;
+  keywords: string[];
+  location_filter: string;
+  seniority: Seniority;
+  needs_clarification: boolean;
+}
+
+export interface JobAssistantResponse {
+  intent: JobAssistantIntent;
+  matches: Job[];
 }
 
 export interface Profile {

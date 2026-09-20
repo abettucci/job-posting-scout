@@ -31,7 +31,7 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
     id: "multi_board",
     label: "Multi-board (all boards)",
     placeholder: "",
-    help: "One profile-shaped search, fanned out across LinkedIn (auto-built URL) + RemoteOK + Working Nomads + Remotive + Arbeitnow + CompuJobs + OnlineJobs.ph + Y Combinator.",
+    help: "One profile-shaped search, fanned out across LinkedIn (auto-built URL), global remote boards, FreeHire and Y Combinator.",
   },
   {
     id: "greenhouse",
@@ -62,6 +62,12 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
     label: "SmartRecruiters",
     placeholder: "bosch",
     help: "Company slug from careers.smartrecruiters.com/{slug}.",
+  },
+  {
+    id: "workday",
+    label: "Workday (company careers URL)",
+    placeholder: "https://company.wd5.myworkdayjobs.com/en-US/External",
+    help: "Paste the public Workday careers URL for one company. Workday uses a tenant and career-site path, not a reusable slug.",
   },
   {
     id: "remoteok",
@@ -105,9 +111,15 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
     placeholder: "",
     help: "Public YC Startup Jobs listings: automatically combines Buenos Aires roles with worldwide-remote roles. Requires keywords below.",
   },
+  {
+    id: "freehire",
+    label: "FreeHire",
+    placeholder: "",
+    help: "Structured global tech jobs from a public feed. Requires keywords below and favors remote roles.",
+  },
 ];
 
-const AGGREGATOR_SOURCES: SearchSource[] = ["remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc"];
+const AGGREGATOR_SOURCES: SearchSource[] = ["remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire"];
 
 export default function SearchForm({ onCreated, onCancel }: Props) {
   const [source, setSource] = useState<SearchSource>("linkedin");
@@ -123,16 +135,20 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
 
   const isLinkedIn = source === "linkedin";
   const isMultiBoard = source === "multi_board";
+  const isWorkday = source === "workday";
   const isAggregator = AGGREGATOR_SOURCES.includes(source);
-  const isAtsSlug = !isLinkedIn && !isMultiBoard && !isAggregator;
+  const isAtsSlug = !isLinkedIn && !isMultiBoard && !isAggregator && !isWorkday;
   const sourceMeta = SOURCES.find((s) => s.id === source)!;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (isLinkedIn) {
-      try { new URL(url); } catch { setError("Enter a valid LinkedIn URL"); return; }
+    if (isLinkedIn || isWorkday) {
+      try { new URL(url); } catch { setError(isWorkday ? "Enter a valid Workday careers URL" : "Enter a valid LinkedIn URL"); return; }
+      if (isWorkday && !new URL(url).hostname.endsWith(".myworkdayjobs.com")) {
+        setError("Enter a public Workday careers URL ending in myworkdayjobs.com"); return;
+      }
     } else if (isMultiBoard) {
       if (!jobTitle.trim()) { setError("Job title is required"); return; }
     } else if (isAtsSlug) {
@@ -145,7 +161,7 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
     setSaving(true);
     try {
       const search = await api.createSearch({
-        url: isLinkedIn ? url.trim() : undefined,
+        url: isLinkedIn || isWorkday ? url.trim() : undefined,
         label: label.trim(),
         source,
         ats_slug: isAtsSlug ? slug.trim().toLowerCase() : "",
@@ -188,9 +204,9 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
       </div>
 
       {/* URL, slug, or (for aggregators/multi-board) nothing — just the help text */}
-      {isLinkedIn ? (
+      {isLinkedIn || isWorkday ? (
         <div>
-          <label className="label">LinkedIn Search URL</label>
+          <label className="label">{isWorkday ? "Workday Careers URL" : "LinkedIn Search URL"}</label>
           <input
             type="url"
             className="input"
@@ -262,7 +278,7 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
           className="input"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder={isLinkedIn ? "e.g. Python Engineer Remote" : "e.g. Stripe Engineering"}
+          placeholder={isLinkedIn ? "e.g. Python Engineer Remote" : isWorkday ? "e.g. Acme Workday Engineering" : "e.g. Stripe Engineering"}
           required
         />
       </div>

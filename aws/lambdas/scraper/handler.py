@@ -83,7 +83,7 @@ def _scoring_router(cfg) -> ScoringRouter:
 
 # ── ATS provider dispatch ─────────────────────────────────────────────────────
 
-_ATS_SOURCES = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters"}
+_ATS_SOURCES = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday"}
 
 
 async def _fetch_ats(source: str, slug: str, label: str, keywords: str, location_filter: str) -> List[Dict]:
@@ -98,6 +98,8 @@ async def _fetch_ats(source: str, slug: str, label: str, keywords: str, location
         from providers.workable import fetch_jobs
     elif source == "smartrecruiters":
         from providers.smartrecruiters import fetch_jobs
+    elif source == "workday":
+        from providers.workday import fetch_jobs
     else:
         logger.warning(f"Unknown ATS source: {source}")
         return []
@@ -109,7 +111,7 @@ async def _fetch_ats(source: str, slug: str, label: str, keywords: str, location
 # feeds — a single fetch returns postings from many companies, so there is no
 # slug to key on. Keywords act as the primary filter to keep volume sane.
 
-_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc"}
+_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire"}
 
 
 async def _fetch_aggregator(source: str, keywords: str, location_filter: str) -> List[Dict]:
@@ -128,6 +130,8 @@ async def _fetch_aggregator(source: str, keywords: str, location_filter: str) ->
         from providers.onlinejobs import fetch_jobs
     elif source == "yc":
         from providers.yc import fetch_jobs
+    elif source == "freehire":
+        from providers.freehire import fetch_jobs
     else:
         logger.warning(f"Unknown aggregator source: {source}")
         return []
@@ -366,9 +370,9 @@ async def _main():
                 if url:
                     linkedin_url_to_users.setdefault(url, []).append(user)
             elif source in _ATS_SOURCES:
-                slug = s.get("ats_slug", "").strip()
+                slug = (s.get("url", "") if source == "workday" else s.get("ats_slug", "")).strip()
                 if not slug:
-                    logger.warning(f"ATS search {s.get('search_id')} has no ats_slug — skipping")
+                    logger.warning(f"ATS search {s.get('search_id')} has no board reference — skipping")
                     continue
                 key = (source, slug, s.get("keywords", ""), s.get("location_filter", ""))
                 if key not in ats_key_to_info:

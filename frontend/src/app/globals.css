@@ -27,11 +27,91 @@
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", "Helvetica Neue", Helvetica, sans-serif;
   letter-spacing: -0.01em;
   min-height: 100dvh;
   background-image: radial-gradient(circle at 100% 0%, rgba(232, 93, 54, 0.10), transparent 28rem);
 }
+
+.discovery-hero {
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  gap: 1.5rem 2.25rem;
+  padding: clamp(1.5rem, 4vw, 3.5rem) 0 clamp(2rem, 5vw, 4.5rem);
+  border-bottom: 1px solid var(--line);
+}
+.discovery-copy { align-self: start; padding-top: .5rem; }
+.discovery-copy h1 {
+  margin: .45rem 0 0;
+  max-width: 12ch;
+  color: var(--foreground);
+  font-size: clamp(2.5rem, 5vw, 4.7rem);
+  font-weight: 850;
+  line-height: .96;
+  letter-spacing: -.075em;
+}
+.discovery-copy > p:last-child {
+  max-width: 34rem;
+  margin: 1.25rem 0 0;
+  color: var(--ink-muted);
+  font-size: .95rem;
+  line-height: 1.65;
+}
+.discovery-composer {
+  align-self: end;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  background: var(--surface);
+  box-shadow: 0 14px 30px rgba(43, 40, 28, .06);
+}
+.discovery-composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+.discovery-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 8rem;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  padding: 1.25rem 1.25rem .75rem;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+.discovery-composer textarea::placeholder { color: color-mix(in srgb, var(--ink-muted) 75%, transparent); }
+.discovery-composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .8rem 1rem .95rem 1.25rem;
+  border-top: 1px solid var(--line);
+}
+.discovery-composer-footer span { color: var(--ink-muted); font-size: .72rem; }
+.discovery-examples { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .55rem; }
+.discovery-examples button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: .55rem .8rem;
+  background: var(--surface);
+  color: var(--foreground);
+  cursor: pointer;
+  font: 600 .76rem/1.25 inherit;
+  text-align: left;
+  transition: transform .2s ease, border-color .2s ease, background .2s ease;
+}
+.discovery-examples button:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.assistant-response { grid-column: 1 / -1; border-left: 3px solid var(--accent); padding: .35rem 0 .35rem 1rem; color: var(--foreground); }
+.assistant-response > p { max-width: 48rem; margin: 0; line-height: 1.55; }
+.assistant-response > p + p { margin-top: .65rem; }
+.assistant-proposal { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; color: var(--ink-muted); font-size: .85rem; }
+.assistant-matches { grid-column: 1 / -1; margin-top: .5rem; }
+.section-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin: 0 0 1rem; }
+.section-heading h2 { margin: .2rem 0 0; font-size: 1.4rem; font-weight: 850; letter-spacing: -.05em; }
+.section-heading > span { color: var(--ink-muted); font-size: .78rem; }
+.empty-discovery { margin: 0; padding: 1.5rem; border: 1px dashed var(--line); border-radius: 1rem; color: var(--ink-muted); font-size: .9rem; }
 
 @layer components {
   .btn {
@@ -74,4 +154,18 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+
+@media (max-width: 900px) {
+  .discovery-hero { grid-template-columns: 1fr; gap: 1.25rem; }
+  .discovery-copy { padding-top: 0; }
+  .discovery-copy h1 { max-width: 14ch; }
+}
+
+@media (max-width: 640px) {
+  .discovery-hero { padding-top: 1.25rem; }
+  .discovery-copy h1 { font-size: 2.5rem; }
+  .discovery-composer-footer { align-items: stretch; flex-direction: column; padding: .75rem; }
+  .discovery-composer-footer .btn-primary { width: 100%; }
+  .assistant-proposal { align-items: stretch; flex-direction: column; }
 }

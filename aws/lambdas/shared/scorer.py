@@ -154,6 +154,47 @@ class ScoringRouter:
         detail = ", ".join(errors) if errors else "no scoring provider configured"
         raise ScoringUnavailableError(detail)
 
+    def complete_json(self, system: str, prompt: str, max_tokens: int = 900) -> Dict[str, Any]:
+        """Run a small structured assistant task through the same failover chain.
+
+        Keeping this beside scoring means interactive discovery receives the
+        same graceful provider fallback as the scheduled scraper, without any
+        credential rotation or hidden extra provider account.
+        """
+        errors: list[str] = []
+        if self._anthropic:
+            try:
+                response = self._anthropic.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=max_tokens,
+                    system=system,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return _extract_json(response.content[0].text)
+            except Exception as exc:
+                errors.append(f"anthropic:{type(exc).__name__}")
+                logger.warning("Primary structured assistant unavailable: %s", type(exc).__name__)
+
+        if self.fallback_enabled:
+            try:
+                endpoint = self._fallback_base_url
+                if not endpoint.endswith("/chat/completions"):
+                    endpoint = f"{endpoint}/chat/completions" if endpoint.endswith("/v1") else f"{endpoint}/v1/chat/completions"
+                response = requests.post(
+                    endpoint,
+                    headers={"Authorization": f"Bearer {self._fallback_api_key}", "Content-Type": "application/json"},
+                    json={"model": self._fallback_model, "max_tokens": max_tokens,
+                          "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]},
+                    timeout=30,
+                )
+                response.raise_for_status()
+                return _extract_json(response.json()["choices"][0]["message"]["content"])
+            except Exception as exc:
+                errors.append(f"fallback:{type(exc).__name__}")
+                logger.warning("Fallback structured assistant unavailable: %s", type(exc).__name__)
+
+        raise ScoringUnavailableError(", ".join(errors) if errors else "no scoring provider configured")
+
     def _score_openai_compatible(self, prompt: str) -> Dict[str, Any]:
         # OmniRoute and many self-hosted gateways expose this standard path.
         endpoint = self._fallback_base_url

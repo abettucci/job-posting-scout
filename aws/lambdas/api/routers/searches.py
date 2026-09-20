@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import uuid
+from urllib.parse import urlparse
 from datetime import datetime
 from typing import Any, Callable, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, HttpUrl, field_validator
 
-_ATS_SOURCES = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters"}
+_ATS_SOURCES = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday"}
 # Aggregators are global job feeds (not company-scoped): no ats_slug, but
 # keywords are required so a subscription doesn't score every job on the feed.
-_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc"}
+_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire"}
 # Multi-board: one profile-shaped search (job_title + seniority) fanned out
 # across LinkedIn (auto-built URL) + every aggregator above. See handler.py.
 _MULTI_BOARD_SOURCE = "multi_board"
@@ -93,8 +94,18 @@ def make_router(db: Any, get_current_user: Callable) -> APIRouter:
                 "compujobs": "https://www.compujobs.co.za/search-jobs/",
                 "onlinejobs": "https://www.onlinejobs.ph/jobseekers/jobsearch",
                 "yc": "https://www.ycombinator.com/jobs",
+                "freehire": "https://freehire.me/",
             }
             effective_url = body.url or aggregator_url_map.get(source, f"https://{source}.com/")
+        elif source == "workday":
+            if not body.url:
+                raise HTTPException(400, "url is required for Workday searches")
+            parsed = urlparse(str(body.url))
+            if parsed.scheme != "https" or not (parsed.hostname or "").endswith(".myworkdayjobs.com"):
+                raise HTTPException(400, "Workday URL must be a public https *.myworkdayjobs.com careers URL")
+            if not parsed.path.strip("/"):
+                raise HTTPException(400, "Workday URL must include the public career-site path")
+            effective_url = str(body.url)
         else:
             if not body.ats_slug.strip():
                 raise HTTPException(400, f"ats_slug is required for {source} searches")

@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { api, Job, Search, type Seniority, type RegionScope, type CompanySizeHint } from "@/lib/api";
 import Nav from "@/components/Nav";
 import JobCard from "@/components/JobCard";
+import JobDiscoveryAssistant from "@/components/JobDiscoveryAssistant";
 
 type SortBy = "posted_date" | "score";
 
@@ -79,6 +80,7 @@ export default function JobsPage() {
   const [expYearsFilter, setExpYearsFilter] = useState("");
   const [rescoring, setRescoring] = useState(false);
   const [rescoreMsg, setRescoreMsg] = useState("");
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/");
@@ -168,9 +170,13 @@ export default function JobsPage() {
     <>
       <Nav />
       <main id="main-content" className="page-shell">
+        <JobDiscoveryAssistant
+          onAppliedChange={(jobId, applied) => { if (applied) setJobs((current) => current.filter((job) => job.job_id !== jobId)); }}
+          onDismissedChange={(jobId, dismissed) => { if (dismissed) setJobs((current) => current.filter((job) => job.job_id !== jobId)); }}
+        />
         <div className="border-b pb-6" style={{ borderColor: "var(--line)" }}>
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <div><p className="eyebrow">Match queue</p><h1 className="page-title mt-1">All jobs</h1></div>
+            <div><p className="eyebrow">Explorar</p><h2 className="text-2xl sm:text-3xl font-black tracking-[-0.055em]">Todas las vacantes</h2></div>
             <div className="flex items-center gap-2 text-sm">
               <label className="text-slate-600 dark:text-slate-400">Min score:</label>
               <div className="flex gap-1">
@@ -209,6 +215,22 @@ export default function JobsPage() {
 
         <section className="card space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
+          <button type="button" className="btn-ghost text-sm" onClick={() => setAdvancedFiltersOpen((open) => !open)} aria-expanded={advancedFiltersOpen}>
+            {advancedFiltersOpen ? "Ocultar filtros" : "Buscar por palabras clave"}
+          </button>
+          <div className="flex items-center gap-2 text-sm">
+            <label className="text-slate-600 dark:text-slate-400">Ordenar:</label>
+            <div className="flex gap-1">
+              {([
+                { id: "posted_date", label: "Fecha" },
+                { id: "score", label: "Score" },
+              ] as { id: SortBy; label: string }[]).map((o) => (
+                <button key={o.id} onClick={() => setSortBy(o.id)} aria-pressed={sortBy === o.id} className="filter-chip">{o.label}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+        {advancedFiltersOpen && <>
           <div className="flex items-center gap-2 flex-wrap">
             <input
               type="text"
@@ -242,25 +264,6 @@ export default function JobsPage() {
               title="Hide jobs that ask for more years in that skill/task than you enter here"
             />
           </div>
-          <div className="flex items-center gap-2 text-sm">
-            <label className="text-slate-600 dark:text-slate-400">Sort by:</label>
-            <div className="flex gap-1">
-              {([
-                { id: "posted_date", label: "Posted date" },
-                { id: "score", label: "Score" },
-              ] as { id: SortBy; label: string }[]).map((o) => (
-                <button
-                  key={o.id}
-                  onClick={() => setSortBy(o.id)}
-                    aria-pressed={sortBy === o.id}
-                    className="filter-chip"
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
 
         <div className="flex items-center gap-2 text-sm flex-wrap">
           <label className="text-slate-600 dark:text-slate-400">Seniority:</label>
@@ -310,6 +313,7 @@ export default function JobsPage() {
           </div>
           <span className="text-xs text-slate-500">(estimated from posting text, not verified)</span>
         </div>
+        </>}
 
         {!fetching && unscoredCount > 0 && (
           <div className="card flex items-center justify-between flex-wrap gap-3 border-yellow-700/50">

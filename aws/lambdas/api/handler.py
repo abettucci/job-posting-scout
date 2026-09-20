@@ -22,7 +22,7 @@ from config import get_config
 from db import DynamoDBClient
 from auth import make_get_current_user
 
-from routers import auth, searches, profile, telegram_link, jobs, interviews, resume
+from routers import auth, searches, profile, telegram_link, jobs, interviews, resume, job_assistant
 
 _cfg = get_config()
 _db = DynamoDBClient(
@@ -59,6 +59,7 @@ app.include_router(telegram_link.make_router(_db, get_current_user))
 app.include_router(jobs.make_router(_db, _cfg, get_current_user))
 app.include_router(interviews.make_router(_db, _cfg, get_current_user))
 app.include_router(resume.make_router(_db, _cfg, get_current_user))
+app.include_router(job_assistant.make_router(_db, _cfg, get_current_user))
 
 
 @app.get("/health")
