@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import re
 from urllib.parse import urlparse
 from datetime import datetime
 from typing import Any, Callable, Literal, Optional
@@ -8,7 +9,7 @@ from typing import Any, Callable, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, HttpUrl, field_validator
 
-_ATS_SOURCES = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday"}
+_ATS_SOURCES = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday", "deel"}
 # Aggregators are global job feeds (not company-scoped): no ats_slug, but
 # keywords are required so a subscription doesn't score every job on the feed.
 _AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire"}
@@ -106,6 +107,21 @@ def make_router(db: Any, get_current_user: Callable) -> APIRouter:
             if not parsed.path.strip("/"):
                 raise HTTPException(400, "Workday URL must include the public career-site path")
             effective_url = str(body.url)
+        elif source == "deel":
+            if not body.url:
+                raise HTTPException(400, "url is required for Deel searches")
+            parsed = urlparse(str(body.url))
+            parts = [part for part in parsed.path.split("/") if part]
+            if parts[:1] == ["job-boards"]:
+                parts = parts[1:]
+            if (
+                parsed.scheme != "https"
+                or (parsed.hostname or "").lower() != "jobs.deel.com"
+                or len(parts) != 1
+                or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", parts[0], re.I)
+            ):
+                raise HTTPException(400, "Deel URL must be a public https://jobs.deel.com/<company> board URL")
+            effective_url = f"https://jobs.deel.com/{parts[0].lower()}"
         else:
             if not body.ats_slug.strip():
                 raise HTTPException(400, f"ats_slug is required for {source} searches")

@@ -70,6 +70,12 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
     help: "Paste the public Workday careers URL for one company. Workday uses a tenant and career-site path, not a reusable slug.",
   },
   {
+    id: "deel",
+    label: "Deel (company careers URL)",
+    placeholder: "https://jobs.deel.com/acme",
+    help: "Paste a public Deel-hosted company board. This source reads only public listing and overview pages, never applications or the API.",
+  },
+  {
     id: "remoteok",
     label: "RemoteOK",
     placeholder: "",
@@ -136,18 +142,27 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
   const isLinkedIn = source === "linkedin";
   const isMultiBoard = source === "multi_board";
   const isWorkday = source === "workday";
+  const isDeel = source === "deel";
   const isAggregator = AGGREGATOR_SOURCES.includes(source);
-  const isAtsSlug = !isLinkedIn && !isMultiBoard && !isAggregator && !isWorkday;
+  const isAtsSlug = !isLinkedIn && !isMultiBoard && !isAggregator && !isWorkday && !isDeel;
   const sourceMeta = SOURCES.find((s) => s.id === source)!;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (isLinkedIn || isWorkday) {
-      try { new URL(url); } catch { setError(isWorkday ? "Enter a valid Workday careers URL" : "Enter a valid LinkedIn URL"); return; }
+    if (isLinkedIn || isWorkday || isDeel) {
+      try { new URL(url); } catch { setError(isWorkday ? "Enter a valid Workday careers URL" : isDeel ? "Enter a valid Deel company board URL" : "Enter a valid LinkedIn URL"); return; }
       if (isWorkday && !new URL(url).hostname.endsWith(".myworkdayjobs.com")) {
         setError("Enter a public Workday careers URL ending in myworkdayjobs.com"); return;
+      }
+      if (isDeel) {
+        const parsed = new URL(url);
+        const parts = parsed.pathname.split("/").filter(Boolean);
+        const companyParts = parts[0] === "job-boards" ? parts.slice(1) : parts;
+        if (parsed.protocol !== "https:" || parsed.hostname !== "jobs.deel.com" || companyParts.length !== 1 || !/^[a-z0-9][a-z0-9-]*$/i.test(companyParts[0])) {
+          setError("Enter a public Deel company board URL like https://jobs.deel.com/acme"); return;
+        }
       }
     } else if (isMultiBoard) {
       if (!jobTitle.trim()) { setError("Job title is required"); return; }
@@ -161,7 +176,7 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
     setSaving(true);
     try {
       const search = await api.createSearch({
-        url: isLinkedIn || isWorkday ? url.trim() : undefined,
+        url: isLinkedIn || isWorkday || isDeel ? url.trim() : undefined,
         label: label.trim(),
         source,
         ats_slug: isAtsSlug ? slug.trim().toLowerCase() : "",
@@ -204,9 +219,9 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
       </div>
 
       {/* URL, slug, or (for aggregators/multi-board) nothing — just the help text */}
-      {isLinkedIn || isWorkday ? (
+      {isLinkedIn || isWorkday || isDeel ? (
         <div>
-          <label className="label">{isWorkday ? "Workday Careers URL" : "LinkedIn Search URL"}</label>
+          <label className="label">{isWorkday ? "Workday Careers URL" : isDeel ? "Deel Company Board URL" : "LinkedIn Search URL"}</label>
           <input
             type="url"
             className="input"
@@ -278,7 +293,7 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
           className="input"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder={isLinkedIn ? "e.g. Python Engineer Remote" : isWorkday ? "e.g. Acme Workday Engineering" : "e.g. Stripe Engineering"}
+          placeholder={isLinkedIn ? "e.g. Python Engineer Remote" : isWorkday ? "e.g. Acme Workday Engineering" : isDeel ? "e.g. Acme Deel Engineering" : "e.g. Stripe Engineering"}
           required
         />
       </div>

@@ -192,6 +192,7 @@ export type SearchSource =
   | "workable"
   | "smartrecruiters"
   | "workday"
+  | "deel"
   | "remoteok"
   | "workingnomads"
   | "remotive"

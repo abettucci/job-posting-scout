@@ -83,7 +83,7 @@ def _scoring_router(cfg) -> ScoringRouter:
 
 # ── ATS provider dispatch ─────────────────────────────────────────────────────
 
-_ATS_SOURCES = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday"}
+_ATS_SOURCES = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday", "deel"}
 
 
 async def _fetch_ats(source: str, slug: str, label: str, keywords: str, location_filter: str) -> List[Dict]:
@@ -100,6 +100,8 @@ async def _fetch_ats(source: str, slug: str, label: str, keywords: str, location
         from providers.smartrecruiters import fetch_jobs
     elif source == "workday":
         from providers.workday import fetch_jobs
+    elif source == "deel":
+        from providers.deel import fetch_jobs
     else:
         logger.warning(f"Unknown ATS source: {source}")
         return []
@@ -370,7 +372,7 @@ async def _main():
                 if url:
                     linkedin_url_to_users.setdefault(url, []).append(user)
             elif source in _ATS_SOURCES:
-                slug = (s.get("url", "") if source == "workday" else s.get("ats_slug", "")).strip()
+                slug = (s.get("url", "") if source in {"workday", "deel"} else s.get("ats_slug", "")).strip()
                 if not slug:
                     logger.warning(f"ATS search {s.get('search_id')} has no board reference — skipping")
                     continue
