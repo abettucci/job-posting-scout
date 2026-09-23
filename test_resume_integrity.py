@@ -40,6 +40,9 @@ class ResumeIntegrityTests(unittest.TestCase):
         self.assertFalse(resume_has_renderable_content({"experience": [{"title": "", "bullets": []}]}))
         self.assertTrue(resume_has_renderable_content(ORIGINAL))
 
+    def test_rejects_name_only_parsing_response(self):
+        self.assertFalse(resume_has_renderable_content({"name": ORIGINAL["name"], "skills": {}}))
+
 
 if __name__ == "__main__":
     unittest.main()

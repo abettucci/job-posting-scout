@@ -63,6 +63,23 @@ const EMPTY_PROJ: ResumeProject = {
   name: "", description: "", url: "", bullets: [""],
 };
 
+function hasProfessionalContent(resume: ResumeData) {
+  const hasText = (value: string) => Boolean(value.trim());
+  const hasListContent = (items: unknown[]) => items.some((item) => {
+    if (typeof item === "string") return hasText(item);
+    if (!item || typeof item !== "object") return false;
+    return Object.values(item as Record<string, unknown>).some((value) =>
+      typeof value === "string" ? hasText(value) : Array.isArray(value) && value.some((entry) => typeof entry === "string" && hasText(entry))
+    );
+  });
+  return hasText(resume.summary)
+    || hasListContent(resume.experience)
+    || hasListContent(resume.education)
+    || hasListContent(resume.projects)
+    || hasListContent(resume.certifications)
+    || Object.values(resume.skills).some((items) => items.some(hasText));
+}
+
 // ── Language options ─────────────────────────────────────────────────────────
 
 const LANGUAGES = ["Original", "English", "Spanish", "Portuguese", "French", "German"];
@@ -361,6 +378,10 @@ export default function ResumePage() {
 
   const handleTailor = async () => {
     if (!tailorJobId && !tailorJobDesc.trim()) return;
+    if (!hasProfessionalContent(resume)) {
+      setTailorError("Your saved resume appears incomplete. Go to Resume Builder, upload the original PDF again, review the extracted fields, and save it before tailoring.");
+      return;
+    }
     setTailoring(true);
     setTailorError("");
     try {

@@ -382,7 +382,18 @@ def _parse_with_claude(client: Anthropic, text: str, links: Optional[List[str]] 
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
-    resume = ResumeData(**json.loads(raw))
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(502, "Could not parse the resume — the AI response was malformed. Please try again.")
+    if not isinstance(data, dict) or not resume_has_renderable_content(data):
+        logger.warning("Rejecting incomplete parsed resume")
+        raise HTTPException(
+            422,
+            "Could not extract enough professional content from this file. "
+            "Please try uploading it again or complete the fields manually.",
+        )
+    resume = ResumeData(**data)
     return _apply_link_overrides(resume, links or [])
 
 
