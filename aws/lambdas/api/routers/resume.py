@@ -18,6 +18,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ._resume_integrity import incomplete_tailored_payload_reason, resume_has_renderable_content
+
 logger = logging.getLogger(__name__)
 
 # Runtime adaptation of the local no-ai-slop editorial skill. Keep this compact
@@ -741,6 +743,18 @@ def _compile_one_page(template_fn, r: ResumeData) -> bytes:
     )
 
 
+def _require_renderable_resume(r: ResumeData) -> None:
+    """Stop an empty AI response from becoming a superficially valid PDF."""
+    if not r.name.strip():
+        raise HTTPException(422, "Add your name before generating a resume.")
+    if not resume_has_renderable_content(r.model_dump()):
+        raise HTTPException(
+            422,
+            "Your resume has no professional content yet. Add a summary, experience, "
+            "education, skills, or projects before generating a PDF.",
+        )
+
+
 # ── ATS check on the actually-compiled PDF (not the source JSON) ─────────────
 #
 # An ATS parser reads whatever text layer the PDF renderer produced — not the ResumeData JSON. Typst can
@@ -958,6 +972,14 @@ def _tailor_with_claude(client: Anthropic, resume: ResumeData, job_description: 
         data = json.loads(raw)
     except json.JSONDecodeError:
         raise HTTPException(502, "Could not tailor resume — the AI response was malformed. Please try again.")
+    reason = incomplete_tailored_payload_reason(resume.model_dump(), data)
+    if reason:
+        logger.warning("Rejecting incomplete tailored resume: %s", reason)
+        raise HTTPException(
+            502,
+            "Could not tailor resume — the AI response was incomplete. "
+            "Your saved resume was not changed; please try again.",
+        )
     try:
         return ResumeData(**data)
     except Exception:
@@ -982,7 +1004,7 @@ STRICT RULES — identical to the tailoring step, never violate:
   no critique text — just the revised JSON.
 """
 
-def _review_tailored_resume(client: Anthropic, tailored: ResumeData, job_description: str) -> ResumeData:
+def _review_tailored_resume(client: Anthropic, original: ResumeData, tailored: ResumeData, job_description: str) -> ResumeData:
     # Haiku, not Sonnet: API Gateway HTTP APIs hard-cap integration timeout at 30s (not configurable), and this
     # runs sequentially after the drafting call — a second Sonnet call risks pushing the total over that ceiling.
     # A tight per-call timeout + fallback to the drafter's output means a slow reviewer degrades gracefully
@@ -1012,6 +1034,9 @@ def _review_tailored_resume(client: Anthropic, tailored: ResumeData, job_descrip
         data = json.loads(raw)
     except json.JSONDecodeError:
         return tailored  # reviewer failed — fall back to the drafter's output rather than erroring out
+    if incomplete_tailored_payload_reason(original.model_dump(), data):
+        logger.warning("Rejecting incomplete tailored-resume review output")
+        return tailored
     try:
         return ResumeData(**data)
     except Exception:
@@ -1340,6 +1365,7 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
     def generate_resume(body: GenerateRequest, user=Depends(get_current_user)):
         r = body.resume
         template = body.template
+        _require_renderable_resume(r)
 
         if template == "typst-modern":
             if body.compile:
@@ -1448,7 +1474,7 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
         job_description = _resolve_job_description(db, user["user_id"], body.job_description, body.job_id)
 
         tailored = _tailor_with_claude(_tailor_anthropic, resume, job_description)
-        tailored = _review_tailored_resume(_tailor_anthropic, tailored, job_description)
+        tailored = _review_tailored_resume(_tailor_anthropic, resume, tailored, job_description)
         return tailored.model_dump()
 
     @router.post("/translate")
@@ -1512,6 +1538,7 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
             raise HTTPException(404, "History entry not found")
         r = ResumeData(**entry["resume"])
         template = entry["template"]
+        _require_renderable_resume(r)
 
         if template == "typst-modern":
             pdf = _compile_one_page(_typst_modern, r)
