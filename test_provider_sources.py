@@ -29,13 +29,17 @@ class Response:
 
 
 class FreeHireClient:
+    def __init__(self):
+        self.urls = []
+
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *_):
         return False
 
-    async def get(self, *_args, **_kwargs):
+    async def get(self, url, *_args, **_kwargs):
+        self.urls.append(url)
         return Response({
             "data": [{
                 "public_slug": "go-engineer-acme-1",
@@ -43,7 +47,7 @@ class FreeHireClient:
                 "company": "Acme",
                 "location": "Remote — Worldwide",
                 "url": "https://example.test/jobs/go-engineer-acme-1",
-                "description": "Build Go services",
+                "description": "Build Go services. Requirements: PostgreSQL, DynamoDB, and Kubernetes.",
                 "skills": ["Go", "PostgreSQL"],
                 "work_mode": "remote",
                 "posted_at": "2026-09-20T12:00:00Z",
@@ -136,12 +140,15 @@ class FallbackDeelClient(DeelClient):
 
 class ProviderSourceTests(unittest.TestCase):
     def test_freehire_normalizes_structured_public_job(self):
-        with patch("providers.freehire.httpx.AsyncClient", return_value=FreeHireClient()):
+        client = FreeHireClient()
+        with patch("providers.freehire.httpx.AsyncClient", return_value=client):
             jobs = asyncio.run(freehire.fetch_jobs("go", "Remote"))
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0]["job_id"], "freehire:go-engineer-acme-1")
         self.assertEqual(jobs[0]["company"], "Acme")
         self.assertIn("2026-09-20", jobs[0]["posted_date"])
+        self.assertIn("DynamoDB", jobs[0]["description"])
+        self.assertEqual(client.urls, ["https://freehire.me/api/v1/agent/jobs/search"])
 
     def test_workday_parses_public_board_and_fetches_detail(self):
         with patch("providers.workday.httpx.AsyncClient", return_value=WorkdayClient()):

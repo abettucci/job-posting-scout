@@ -14,7 +14,11 @@ from ._utils import keyword_match, location_match, normalize_posted_date, strip_
 
 logger = logging.getLogger(__name__)
 
-_API_URL = "https://freehire.me/api/v1/jobs/search"
+# FreeHire documents this public agent-search variant specifically for programmatic
+# consumers: it supports the same filters as /jobs/search but returns each full,
+# verbatim description instead of the short index preview. Scoring requirements
+# from a preview is misleading because the required stack is often at the end.
+_API_URL = "https://freehire.me/api/v1/agent/jobs/search"
 _PAGE_SIZE = 100
 _MAX_PAGES = 3
 

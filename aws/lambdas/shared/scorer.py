@@ -45,6 +45,15 @@ Rules:
 - reasons: max 5 bullet points, each starting with ✅ (match) or ❌ (mismatch)
 - summary: 3 short lines describing the role (no opinions)
 - recommendation: APPLY if score >= 70 and not deal_breaker, SKIP if score < 50 or deal_breaker, MAYBE otherwise
+- "Eligible work regions" lists where the candidate can work remotely. Treat an
+  explicit job location that matches one of those regions as a positive
+  availability match; never say the candidate's location preference is
+  unspecified when that field is present.
+- Compare every explicit technical "must-have" in the posting against Must
+  have and Nice to have. If a required technology is absent from both lists,
+  treat it as an unverified gap and include a ❌ reason; never infer that a
+  generic backend/Python match implies C#, .NET, EF Core, or another distinct
+  required stack.
 - notification_location_allowed is a strict delivery rule, independent of score:
   set true only when the posting is explicitly worldwide/global remote, or
   explicitly Argentina/Buenos Aires. Read both Location and Description.
@@ -65,6 +74,8 @@ def _profile_to_text(profile: Dict) -> str:
         lines.append("Deal breakers: " + ", ".join(profile["deal_breakers"]))
     if profile.get("prefer"):
         lines.append("Prefer: " + ", ".join(profile["prefer"]))
+    if profile.get("eligible_regions"):
+        lines.append("Eligible work regions: " + ", ".join(profile["eligible_regions"]))
     return "\n".join(lines)
 
 
