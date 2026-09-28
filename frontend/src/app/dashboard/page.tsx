@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { api, Job, Search } from "@/lib/api";
@@ -18,6 +18,7 @@ export default function DashboardPage() {
   const [fetching, setFetching] = useState(true);
   const [runningScaper, setRunningScaper] = useState(false);
   const [scraperMsg, setScraperMsg] = useState<string | null>(null);
+  const hiddenJobIds = useRef(new Set<string>());
 
   useEffect(() => {
     if (!loading && !user) router.replace("/");
@@ -30,7 +31,7 @@ export default function DashboardPage() {
       api.getJobs(user.score_threshold, 10, false, false),
     ]).then(([s, j]) => {
       setSearches(s);
-      setJobs(j.items.filter((job) => !job.deal_breaker));
+      setJobs(j.items.filter((job) => !job.deal_breaker && !hiddenJobIds.current.has(job.job_id)));
     }).finally(() => setFetching(false));
   }, [user]);
 
@@ -189,10 +190,16 @@ export default function DashboardPage() {
                   key={j.job_id}
                   job={j}
                   onAppliedChange={(jobId, applied) => {
-                    if (applied) setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                    if (applied) {
+                      hiddenJobIds.current.add(jobId);
+                      setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                    }
                   }}
                   onDismissedChange={(jobId, dismissed) => {
-                    if (dismissed) setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                    if (dismissed) {
+                      hiddenJobIds.current.add(jobId);
+                      setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                    }
                   }}
                 />
               ))}

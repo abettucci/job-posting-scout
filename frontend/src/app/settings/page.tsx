@@ -15,6 +15,8 @@ const EMPTY_PROFILE: Profile = {
   prefer: [],
   score_threshold: 75,
   seniority: "",
+  target_seniorities: [],
+  max_required_years: null,
   eligible_regions: [],
 };
 

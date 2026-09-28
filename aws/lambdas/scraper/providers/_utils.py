@@ -26,7 +26,10 @@ def keyword_match(text: str, keywords: str) -> bool:
 def location_match(job_location: str, location_filter: str) -> bool:
     if not location_filter.strip():
         return True
-    return location_filter.strip().lower() in job_location.lower()
+    # A saved search may name alternatives, e.g. "Argentina, Remote,
+    # Worldwide". Treat commas as OR, never as one literal phrase.
+    alternatives = [item.strip().lower() for item in location_filter.split(",") if item.strip()]
+    return any(item in job_location.lower() for item in alternatives)
 
 
 def normalize_posted_date(value: Union[str, int, float, None], unit: str = "s") -> Optional[str]:

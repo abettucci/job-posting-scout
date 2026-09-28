@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { api, type Search, type SearchSource, type Seniority } from "@/lib/api";
+import { api, type Search, type SearchSource, type Seniority, type SeniorityLevel, type CompanySizeHint } from "@/lib/api";
 
 interface Props {
   onCreated: (s: Search) => void;
@@ -135,7 +135,11 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
   const [keywords, setKeywords] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [jobTitle, setJobTitle] = useState("");
-  const [seniority, setSeniority] = useState<Seniority>("");
+  const [seniorities, setSeniorities] = useState<SeniorityLevel[]>([]);
+  const [maxYearsExperience, setMaxYearsExperience] = useState("");
+  const [experienceSkill, setExperienceSkill] = useState("");
+  const [maxSkillYears, setMaxSkillYears] = useState("");
+  const [companySizeHints, setCompanySizeHints] = useState<CompanySizeHint[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -183,7 +187,12 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
         keywords: keywords.trim(),
         location_filter: locationFilter.trim(),
         job_title: isMultiBoard ? jobTitle.trim() : "",
-        seniority: isMultiBoard ? seniority : "",
+        seniority: seniorities[0] ?? "",
+        seniorities,
+        max_years_experience: maxYearsExperience ? Number(maxYearsExperience) : null,
+        experience_skill: experienceSkill.trim(),
+        max_skill_years: maxSkillYears ? Number(maxSkillYears) : null,
+        company_size_hints: companySizeHints,
       });
       onCreated(search);
     } catch (err: unknown) {
@@ -249,7 +258,7 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
         <p className="text-xs text-slate-500">{sourceMeta.help}</p>
       )}
 
-      {/* Multi-board: job title + seniority instead of a URL/slug/keywords */}
+      {/* Multi-board: job title instead of a URL/slug/keywords */}
       {isMultiBoard && (
         <>
           <div>
@@ -263,27 +272,52 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
               required
             />
           </div>
-          <div>
-            <label className="label">Seniority <span className="text-slate-500">(optional)</span></label>
-            <select
-              className="input"
-              value={seniority}
-              onChange={(e) => setSeniority(e.target.value as Seniority)}
-            >
-              {SENIORITY_OPTIONS.map((o) => (
-                <option key={o.id} value={o.id}>{o.label}</option>
-              ))}
-            </select>
-            <p className="text-xs text-slate-500 mt-1">
-              Applied natively on LinkedIn (its Experience level filter). The other boards (RemoteOK, Working
-              Nomads, Remotive, Arbeitnow, and Y Combinator) have no structured seniority field, so this only narrows LinkedIn.
-            </p>
-          </div>
-          <p className="text-xs text-slate-500">
-            Company size/type isn&apos;t filterable yet on any of these boards — none of them expose it via their public API.
-          </p>
         </>
       )}
+
+      <details className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+        <summary className="cursor-pointer text-sm font-medium text-slate-800 dark:text-slate-200">More result filters</summary>
+        <div className="grid sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className="label">Seniority <span className="text-slate-500">(select any)</span></label>
+            <div className="grid grid-cols-2 gap-1.5 text-sm text-slate-700 dark:text-slate-300">
+              {SENIORITY_OPTIONS.filter((option) => option.id).map((option) => {
+                const level = option.id as SeniorityLevel;
+                return <label key={level} className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={seniorities.includes(level)} onChange={() => setSeniorities((current) => current.includes(level) ? current.filter((item) => item !== level) : [...current, level])} className="accent-brand" />{option.label}</label>;
+              })}
+            </div>
+          </div>
+          <div>
+            <label className="label">Maximum required experience</label>
+            <input type="number" min={1} max={40} inputMode="numeric" className="input" value={maxYearsExperience} onChange={(e) => setMaxYearsExperience(e.target.value)} placeholder="e.g. 3 years" />
+          </div>
+          <div>
+            <label className="label">Skill or task experience</label>
+            <input type="text" className="input" value={experienceSkill} onChange={(e) => setExperienceSkill(e.target.value)} placeholder="e.g. Python, AWS, data modeling" />
+          </div>
+          <div>
+            <label className="label">Maximum years for that skill/task</label>
+            <input type="number" min={1} max={40} inputMode="numeric" className="input" value={maxSkillYears} onChange={(e) => setMaxSkillYears(e.target.value)} placeholder="e.g. 2 years" disabled={!experienceSkill.trim()} />
+          </div>
+        </div>
+        <fieldset className="mt-4">
+          <legend className="label">Company size <span className="text-slate-500">(when detected)</span></legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-700 dark:text-slate-300">
+            {([
+              ["startup", "Startup"],
+              ["midsize", "Mid-size"],
+              ["enterprise", "Enterprise"],
+            ] as [CompanySizeHint, string][]).map(([size, label]) => (
+              <label key={size} className="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={companySizeHints.includes(size)} onChange={() => setCompanySizeHints((current) => current.includes(size) ? current.filter((item) => item !== size) : [...current, size])} className="accent-brand" />
+                {label}
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500 mt-2">Company size is an estimate from the posting or LinkedIn. Jobs with no reliable size signal remain eligible.</p>
+        </fieldset>
+        <p className="text-xs text-slate-500 mt-3">These filters run after a job is fetched and before AI scoring or Telegram notification. Seniority is applied natively on LinkedIn when available and then checked again from the title for every source.</p>
+      </details>
 
       {/* Label */}
       <div>
@@ -328,11 +362,11 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
             className="input"
             value={locationFilter}
             onChange={(e) => setLocationFilter(e.target.value)}
-            placeholder="Remote"
+            placeholder="Argentina, Remote, Worldwide"
           />
           {isMultiBoard && (
             <p className="text-xs text-slate-500 mt-1">
-              Passed as LinkedIn&apos;s location filter; on the other boards it only narrows results whose location text matches.
+              Separate alternatives with commas (OR). LinkedIn runs one search per location; other boards match any listed location.
             </p>
           )}
         </div>

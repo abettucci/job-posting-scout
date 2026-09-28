@@ -4,7 +4,7 @@ import uuid
 import re
 from urllib.parse import urlparse
 from datetime import datetime
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, HttpUrl, field_validator
@@ -30,6 +30,11 @@ class SearchCreate(BaseModel):
     location_filter: str = ""         # location filter string
     job_title: str = ""                # required for multi_board
     seniority: str = ""                # optional for multi_board; one of SENIORITY_LEVELS
+    seniorities: List[str] = []         # multi-select successor to seniority
+    max_years_experience: Optional[int] = None
+    experience_skill: str = ""
+    max_skill_years: Optional[int] = None
+    company_size_hints: List[str] = []
 
     @field_validator("source")
     @classmethod
@@ -45,6 +50,28 @@ class SearchCreate(BaseModel):
         if v and v not in _SENIORITY_LEVELS:
             raise ValueError(f"seniority must be one of: {_SENIORITY_LEVELS}")
         return v
+
+    @field_validator("seniorities")
+    @classmethod
+    def validate_seniorities(cls, values: List[str]) -> List[str]:
+        if any(value not in _SENIORITY_LEVELS for value in values):
+            raise ValueError(f"seniorities must contain only: {_SENIORITY_LEVELS}")
+        return list(dict.fromkeys(values))
+
+    @field_validator("max_years_experience", "max_skill_years")
+    @classmethod
+    def validate_year_limit(cls, value: Optional[int]) -> Optional[int]:
+        if value is not None and not 1 <= value <= 40:
+            raise ValueError("experience limits must be between 1 and 40")
+        return value
+
+    @field_validator("company_size_hints")
+    @classmethod
+    def validate_company_sizes(cls, values: List[str]) -> List[str]:
+        allowed = {"startup", "midsize", "enterprise"}
+        if any(value not in allowed for value in values):
+            raise ValueError("company_size_hints must contain only startup, midsize, enterprise")
+        return list(dict.fromkeys(values))
 
     @field_validator("url")
     @classmethod
@@ -147,6 +174,11 @@ def make_router(db: Any, get_current_user: Callable) -> APIRouter:
             "location_filter": body.location_filter.strip(),
             "job_title": body.job_title.strip(),
             "seniority": body.seniority,
+            "seniorities": body.seniorities,
+            "max_years_experience": body.max_years_experience,
+            "experience_skill": body.experience_skill.strip(),
+            "max_skill_years": body.max_skill_years,
+            "company_size_hints": body.company_size_hints,
             "active": True,
             "created_at": datetime.utcnow().isoformat(),
         }

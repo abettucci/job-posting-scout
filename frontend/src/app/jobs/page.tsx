@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { api, Job, Search, type Seniority, type RegionScope, type CompanySizeHint } from "@/lib/api";
+import { api, Job, Search, type Seniority, type SeniorityLevel, type RegionScope, type CompanySizeHint } from "@/lib/api";
 import Nav from "@/components/Nav";
 import JobCard from "@/components/JobCard";
 import JobDiscoveryAssistant from "@/components/JobDiscoveryAssistant";
@@ -35,6 +35,20 @@ const REGION_OPTIONS: { id: RegionScope | ""; label: string }[] = [
   { id: "restricted", label: "📍 Restricted" },
 ];
 
+const COUNTRY_OPTIONS = [
+  ["argentina", "Argentina"], ["brazil", "Brazil"], ["chile", "Chile"], ["colombia", "Colombia"], ["mexico", "Mexico"], ["uruguay", "Uruguay"],
+  ["united_states", "United States"], ["canada", "Canada"], ["united_kingdom", "United Kingdom"], ["germany", "Germany"], ["poland", "Poland"], ["spain", "Spain"],
+  ["portugal", "Portugal"], ["france", "France"], ["netherlands", "Netherlands"], ["ireland", "Ireland"], ["italy", "Italy"], ["india", "India"],
+  ["australia", "Australia"], ["philippines", "Philippines"], ["singapore", "Singapore"], ["south_africa", "South Africa"],
+] as const;
+
+const COUNTRY_TERMS: Record<string, string[]> = {
+  argentina: ["argentina", "buenos aires"], brazil: ["brazil", "brasil"], chile: ["chile"], colombia: ["colombia"], mexico: ["mexico", "méxico"], uruguay: ["uruguay"],
+  united_states: ["united states", "usa", "u.s."], canada: ["canada"], united_kingdom: ["united kingdom", "uk", "england"], germany: ["germany", "deutschland"], poland: ["poland", "polska"], spain: ["spain", "españa"],
+  portugal: ["portugal"], france: ["france"], netherlands: ["netherlands", "holland"], ireland: ["ireland"], italy: ["italy", "italia"], india: ["india"],
+  australia: ["australia"], philippines: ["philippines"], singapore: ["singapore"], south_africa: ["south africa"],
+};
+
 // Same caveat as COMPANY_SIZE in JobCard.tsx: this is a text-based estimate,
 // not verified headcount — see shared/seniority.py's extract_company_size_hint.
 const COMPANY_SIZE_OPTIONS: { id: CompanySizeHint | ""; label: string }[] = [
@@ -53,10 +67,18 @@ function timeAgo(date: Date): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+function effectiveSeniority(job: Job): SeniorityLevel {
+  // Backfill display/filter behavior for rows saved before the scraper began
+  // assigning a default level to otherwise-neutral titles.
+  if (job.seniority_level) return job.seniority_level;
+  return job.min_years_experience !== null && job.min_years_experience > 5 ? "mid" : "entry";
+}
+
 function describeSearch(s: Search): string {
   if (s.source === "linkedin") return "LinkedIn (specific URL)";
   if (s.source === "multi_board") {
-    return `Multi-board: "${s.job_title}"${s.seniority ? ` (${s.seniority})` : ""}`;
+    const levels = s.seniorities?.length ? s.seniorities.join(", ") : s.seniority;
+    return `Multi-board: "${s.job_title}"${levels ? ` (${levels})` : ""}`;
   }
   const filter = s.keywords ? `keywords: "${s.keywords}"` : s.ats_slug ? `company: ${s.ats_slug}` : "";
   return `${s.source}${filter ? ` — ${filter}` : ""}${s.location_filter ? ` · ${s.location_filter}` : ""}`;
@@ -72,15 +94,22 @@ export default function JobsPage() {
   const [fetching, setFetching] = useState(true);
   const [sortBy, setSortBy] = useState<SortBy>("posted_date");
   const [titleFilter, setTitleFilter] = useState("");
-  const [seniorityFilter, setSeniorityFilter] = useState<Seniority>("");
+  const [seniorityFilter, setSeniorityFilter] = useState<SeniorityLevel[]>([]);
   const [yearsFilter, setYearsFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState<RegionScope | "">("");
+  const [countryFilter, setCountryFilter] = useState("");
   const [companySizeFilter, setCompanySizeFilter] = useState<CompanySizeHint | "">("");
   const [expSkillFilter, setExpSkillFilter] = useState("");
   const [expYearsFilter, setExpYearsFilter] = useState("");
   const [rescoring, setRescoring] = useState(false);
   const [rescoreMsg, setRescoreMsg] = useState("");
   const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
+  const [targetSeniorities, setTargetSeniorities] = useState<SeniorityLevel[]>([]);
+  const [maxRequiredYears, setMaxRequiredYears] = useState<number | null>(null);
+  // A request started before an action can finish after it and contain the
+  // old queue state. Remember moved cards for this mounted view so stale
+  // responses can never reinsert an Applied/Dismissed card.
+  const hiddenJobIds = useRef(new Set<string>());
 
   useEffect(() => {
     if (!loading && !user) router.replace("/");
@@ -92,8 +121,20 @@ export default function JobsPage() {
     // Explicitly request only the active queue. Older rows with no `applied`
     // attribute are treated as not applied by the API, so this also works for
     // every job saved before the feature existed.
-    api.getJobs(minScore, 50, false, false).then((r) => setJobs(r.items)).finally(() => setFetching(false));
+    api.getJobs(minScore, 50, false, false)
+      .then((r) => setJobs(r.items.filter((job) => !hiddenJobIds.current.has(job.job_id))))
+      .finally(() => setFetching(false));
   }, [user, minScore]);
+
+  // These rules also hide jobs collected before the preference was saved. The
+  // scraper enforces them for every new job before scoring or notification.
+  useEffect(() => {
+    if (!user) return;
+    api.getProfile().then((profile) => {
+      setTargetSeniorities(profile.target_seniorities ?? (profile.seniority ? [profile.seniority] : []));
+      setMaxRequiredYears(profile.max_required_years ?? null);
+    });
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -137,10 +178,13 @@ export default function JobsPage() {
       // example, Germany-only when the profile allows Argentina/LATAM). Keep
       // the record for auditability, but don't make the active queue noisy.
       if (j.deal_breaker) return false;
+      if (targetSeniorities.length > 0 && !targetSeniorities.includes(effectiveSeniority(j))) return false;
+      if (maxRequiredYears && j.min_years_experience && j.min_years_experience > maxRequiredYears) return false;
       if (terms.length > 0 && !terms.some((t) => j.title.toLowerCase().includes(t))) return false;
-      if (seniorityFilter && j.seniority_level !== seniorityFilter) return false;
+      if (seniorityFilter.length > 0 && !seniorityFilter.includes(effectiveSeniority(j))) return false;
       if (years !== null && j.min_years_experience !== null && j.min_years_experience > years) return false;
       if (regionFilter && j.region_scope !== regionFilter) return false;
+      if (countryFilter && !COUNTRY_TERMS[countryFilter].some((term) => j.location.toLowerCase().includes(term))) return false;
       if (companySizeFilter && j.company_size_hint !== companySizeFilter) return false;
       // Skill/task years filter: only excludes a job when it actually mentions
       // the skill AND asks for more years than declared — a job that never
@@ -162,7 +206,7 @@ export default function JobsPage() {
       if (b.posted_date === null) return -1;
       return new Date(b.posted_date).getTime() - new Date(a.posted_date).getTime();
     });
-  }, [jobs, titleFilter, seniorityFilter, yearsFilter, regionFilter, companySizeFilter, expSkillFilter, expYearsFilter, sortBy]);
+  }, [jobs, targetSeniorities, maxRequiredYears, titleFilter, seniorityFilter, yearsFilter, regionFilter, countryFilter, companySizeFilter, expSkillFilter, expYearsFilter, sortBy]);
 
   if (loading || !user) return null;
 
@@ -171,8 +215,18 @@ export default function JobsPage() {
       <Nav />
       <main id="main-content" className="page-shell">
         <JobDiscoveryAssistant
-          onAppliedChange={(jobId, applied) => { if (applied) setJobs((current) => current.filter((job) => job.job_id !== jobId)); }}
-          onDismissedChange={(jobId, dismissed) => { if (dismissed) setJobs((current) => current.filter((job) => job.job_id !== jobId)); }}
+          onAppliedChange={(jobId, applied) => {
+            if (applied) {
+              hiddenJobIds.current.add(jobId);
+              setJobs((current) => current.filter((job) => job.job_id !== jobId));
+            }
+          }}
+          onDismissedChange={(jobId, dismissed) => {
+            if (dismissed) {
+              hiddenJobIds.current.add(jobId);
+              setJobs((current) => current.filter((job) => job.job_id !== jobId));
+            }
+          }}
         />
         <div className="border-b pb-6" style={{ borderColor: "var(--line)" }}>
           <div className="flex items-center justify-between flex-wrap gap-3">
@@ -271,8 +325,17 @@ export default function JobsPage() {
             {SENIORITY_OPTIONS.map((o) => (
               <button
                 key={o.id}
-                onClick={() => setSeniorityFilter(o.id)}
-                aria-pressed={seniorityFilter === o.id}
+                onClick={() => {
+                  if (!o.id) {
+                    setSeniorityFilter([]);
+                  } else {
+                    const level = o.id as SeniorityLevel;
+                    setSeniorityFilter((current) => current.includes(level)
+                      ? current.filter((item) => item !== level)
+                      : [...current, level]);
+                  }
+                }}
+                aria-pressed={o.id ? seniorityFilter.includes(o.id) : seniorityFilter.length === 0}
                 className="filter-chip"
               >
                 {o.label}
@@ -295,6 +358,15 @@ export default function JobsPage() {
               </button>
             ))}
           </div>
+          <select
+            aria-label="Country"
+            value={countryFilter}
+            onChange={(event) => setCountryFilter(event.target.value)}
+            className="input w-44 text-sm py-1"
+          >
+            <option value="">Any country</option>
+            {COUNTRY_OPTIONS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
         </div>
 
         <div className="flex items-center gap-2 text-sm flex-wrap">
@@ -346,10 +418,16 @@ export default function JobsPage() {
                 key={j.job_id}
                 job={j}
                 onAppliedChange={(jobId, applied) => {
-                  if (applied) setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                  if (applied) {
+                    hiddenJobIds.current.add(jobId);
+                    setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                  }
                 }}
                 onDismissedChange={(jobId, dismissed) => {
-                  if (dismissed) setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                  if (dismissed) {
+                    hiddenJobIds.current.add(jobId);
+                    setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                  }
                 }}
               />
             ))}

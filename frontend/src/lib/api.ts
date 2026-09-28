@@ -204,6 +204,7 @@ export type SearchSource =
   | "multi_board";
 
 export type Seniority = "" | "internship" | "entry" | "associate" | "mid" | "senior" | "staff" | "director" | "executive";
+export type SeniorityLevel = Exclude<Seniority, "">;
 
 export interface Search {
   search_id: string;
@@ -216,6 +217,11 @@ export interface Search {
   location_filter: string;
   job_title: string;
   seniority: Seniority;
+  seniorities?: SeniorityLevel[];
+  max_years_experience?: number | null;
+  experience_skill?: string;
+  max_skill_years?: number | null;
+  company_size_hints?: CompanySizeHint[];
   active: boolean;
   created_at: string;
 }
@@ -229,6 +235,11 @@ export interface CreateSearchPayload {
   location_filter?: string;
   job_title?: string;
   seniority?: Seniority;
+  seniorities?: SeniorityLevel[];
+  max_years_experience?: number | null;
+  experience_skill?: string;
+  max_skill_years?: number | null;
+  company_size_hints?: CompanySizeHint[];
 }
 
 export interface JobAssistantMessage {
@@ -256,7 +267,14 @@ export interface Profile {
   deal_breakers: string[];
   prefer: string[];
   score_threshold: number;
+  // Legacy single-value preference, kept while existing profiles migrate.
   seniority: Seniority;
+  // Every level the candidate wants to consider. This makes "Junior or Mid"
+  // expressible without accepting every level in LinkedIn's Mid-Senior bucket.
+  target_seniorities: SeniorityLevel[];
+  // null/0 means no cap; otherwise a posting with a higher explicit minimum
+  // is filtered before scoring and notification.
+  max_required_years: number | null;
   eligible_regions: string[];
 }
 
@@ -311,6 +329,9 @@ export interface Job {
   // e.g. {years: 5, context: "Python"} — see shared/seniority.py's
   // extract_experience_mentions. Never a verified/confirmed requirement.
   experience_mentions: { years: number; context: string }[];
+  // Names of the saved searches that found this posting. Older jobs may not
+  // have provenance because they were saved before this field existed.
+  search_labels?: string[];
   score: number;
   summary: string;
   reasons: string[];

@@ -166,6 +166,12 @@ def _build_linkedin_url(job_title: str, seniority: str, location_filter: str) ->
     return "https://www.linkedin.com/jobs/search/?" + urlencode(params)
 
 
+def _location_alternatives(value: str) -> List[str]:
+    """Split a saved comma-separated location preference for LinkedIn, whose
+    public search URL accepts only one location per request."""
+    return [item.strip() for item in (value or "").split(",") if item.strip()] or [""]
+
+
 # ── Requirement extraction & hard-filters (seniority, remote region) ─────────
 # Runs for every job regardless of profile, so seniority_level/
 # min_years_experience/region_scope are always persisted (useful even before a
@@ -203,28 +209,105 @@ def _enrich_job(job: Dict) -> Dict:
 
 
 def _seniority_mismatch(job: Dict, profile: Dict) -> Dict | None:
-    """Hard-filter check: if the candidate declared a seniority level in their
-    profile and the job's own extracted level is different, skip
+    """Hard-filter check: if the candidate declared accepted seniority levels
+    in their profile and the job's own extracted level is outside them, skip
     Claude entirely and return a synthetic deal-breaker result (same shape as
     score_job()'s return value). The title classifier deliberately separates
     Mid, Senior, and Staff/Principal, so an explicitly labelled "Senior"
     posting must not pass a Mid-level preference just because LinkedIn groups
     both under its broad native "Mid-Senior" bucket."""
-    candidate_level = profile.get("seniority")
+    candidate_levels = profile.get("target_seniorities") or []
+    # Backwards compatibility with profiles saved before multiple selections
+    # were introduced.
+    if not candidate_levels and profile.get("seniority"):
+        candidate_levels = [profile["seniority"]]
     job_level = job.get("seniority_level")
-    if not candidate_level or not job_level:
+    if not candidate_levels or not job_level:
         return None
-    if candidate_level not in SENIORITY_LEVELS or job_level not in SENIORITY_LEVELS:
+    candidate_levels = [level for level in candidate_levels if level in SENIORITY_LEVELS]
+    if not candidate_levels or job_level not in SENIORITY_LEVELS:
         return None
-    if candidate_level == job_level:
+    if job_level in candidate_levels:
         return None
     return {
         "score": 0,
         "deal_breaker": True,
-        "reasons": [f"❌ Seniority mismatch: posting reads as '{job_level}', your profile is '{candidate_level}'"],
+        "reasons": [f"❌ Seniority mismatch: posting reads as '{job_level}', your target levels are {', '.join(candidate_levels)}"],
         "summary": "Filtered automatically before scoring — seniority does not match your preference.",
         "recommendation": "SKIP",
     }
+
+
+def _experience_mismatch(job: Dict, profile: Dict) -> Dict | None:
+    """Skip a posting when its explicit minimum experience exceeds the cap
+    the candidate selected. Unknown experience is never treated as a mismatch.
+
+    This runs before the model call, so a clear "7 years" requirement neither
+    spends an evaluation nor becomes a Telegram notification for a candidate
+    who set a 3-year cap.
+    """
+    cap = profile.get("max_required_years")
+    required = job.get("min_years_experience")
+    if not isinstance(cap, (int, float)) or cap <= 0:
+        return None
+    if not isinstance(required, (int, float)) or required <= cap:
+        return None
+    return {
+        "score": 0,
+        "deal_breaker": True,
+        "reasons": [f"❌ Experience mismatch: posting requires {required:g}+ years, your cap is {cap:g}"],
+        "summary": "Filtered automatically before scoring — experience requirement exceeds your preference.",
+        "recommendation": "SKIP",
+    }
+
+
+def _search_mismatch(job: Dict, search: Dict) -> Dict | None:
+    """Apply optional filters belonging to one saved search after enrichment.
+
+    Source APIs do not expose every filter structurally, so this is the first
+    point at which title, years, per-skill years and estimated company size
+    are available consistently across all sources. Unknown extraction values
+    are deliberately allowed instead of guessed away.
+    """
+    search_seniorities = search.get("seniorities") or ([] if not search.get("seniority") else [search["seniority"]])
+    if search_seniorities and job.get("seniority_level") and job["seniority_level"] not in search_seniorities:
+        return {
+            "score": 0, "deal_breaker": True,
+            "reasons": [f"❌ Search filter: posting is '{job['seniority_level']}', search allows {', '.join(search_seniorities)}"],
+            "summary": "Filtered automatically by this search's seniority preference.", "recommendation": "SKIP",
+        }
+
+    max_years = search.get("max_years_experience")
+    if isinstance(max_years, (int, float)) and isinstance(job.get("min_years_experience"), (int, float)) and job["min_years_experience"] > max_years:
+        return {
+            "score": 0, "deal_breaker": True,
+            "reasons": [f"❌ Search filter: posting requires {job['min_years_experience']:g}+ years (limit {max_years:g})"],
+            "summary": "Filtered automatically by this search's experience limit.", "recommendation": "SKIP",
+        }
+
+    skill = str(search.get("experience_skill") or "").strip().casefold()
+    max_skill_years = search.get("max_skill_years")
+    if skill and isinstance(max_skill_years, (int, float)):
+        over_limit = any(
+            skill in str(mention.get("context") or "").casefold() and mention.get("years", 0) > max_skill_years
+            for mention in job.get("experience_mentions", [])
+            if isinstance(mention, dict)
+        )
+        if over_limit:
+            return {
+                "score": 0, "deal_breaker": True,
+                "reasons": [f"❌ Search filter: requires too many years of {search.get('experience_skill')}"],
+                "summary": "Filtered automatically by this search's skill-experience limit.", "recommendation": "SKIP",
+            }
+
+    company_sizes = search.get("company_size_hints") or []
+    if company_sizes and job.get("company_size_hint") and job["company_size_hint"] not in company_sizes:
+        return {
+            "score": 0, "deal_breaker": True,
+            "reasons": ["❌ Search filter: company-size estimate is outside this search's preference"],
+            "summary": "Filtered automatically by this search's company-size preference.", "recommendation": "SKIP",
+        }
+    return None
 
 
 def _region_mismatch(job: Dict, profile: Dict) -> Dict | None:
@@ -305,7 +388,7 @@ async def _rescore(user_id: str):
     for job in unscored:
         job = _enrich_job(job)
 
-        mismatch = _seniority_mismatch(job, profile) or _region_mismatch(job, profile)
+        mismatch = _seniority_mismatch(job, profile) or _experience_mismatch(job, profile) or _region_mismatch(job, profile)
         if mismatch:
             _save_scored_job(db, user_id, job, mismatch, notified=False)
             continue
@@ -352,14 +435,16 @@ async def _main():
 
     # ── Build per-source search maps ──────────────────────────────────────────
 
-    # LinkedIn: { url: [user, ...] }
+    # LinkedIn: { url: [(user, saved_search), ...] }. Retaining the search is
+    # what lets us apply each search's post-fetch filters and explain the
+    # provenance on the saved job card.
     linkedin_url_to_users: Dict[str, List] = {}
 
-    # ATS: { (source, slug, keywords, location_filter): {label, users} }
+    # ATS: { (source, slug, keywords, location_filter): {label, subscriptions} }
     # Deduplicates identical ATS searches across users (shared fetch).
     ats_key_to_info: Dict[Tuple, Dict] = {}
 
-    # Aggregator: { (source, keywords, location_filter): {label, users} }
+    # Aggregator: { (source, keywords, location_filter): {label, subscriptions} }
     # Deduplicates identical aggregator searches across users (shared fetch).
     aggregator_key_to_info: Dict[Tuple, Dict] = {}
 
@@ -370,7 +455,7 @@ async def _main():
             if source == "linkedin":
                 url = s.get("url", "")
                 if url:
-                    linkedin_url_to_users.setdefault(url, []).append(user)
+                    linkedin_url_to_users.setdefault(url, []).append((user, s))
             elif source in _ATS_SOURCES:
                 slug = (s.get("url", "") if source in {"workday", "deel"} else s.get("ats_slug", "")).strip()
                 if not slug:
@@ -378,9 +463,8 @@ async def _main():
                     continue
                 key = (source, slug, s.get("keywords", ""), s.get("location_filter", ""))
                 if key not in ats_key_to_info:
-                    ats_key_to_info[key] = {"label": s.get("label", slug), "users": []}
-                if user not in ats_key_to_info[key]["users"]:
-                    ats_key_to_info[key]["users"].append(user)
+                    ats_key_to_info[key] = {"label": s.get("label", slug), "subscriptions": []}
+                ats_key_to_info[key]["subscriptions"].append((user, s))
             elif source in _AGGREGATOR_SOURCES:
                 keywords = s.get("keywords", "").strip()
                 if not keywords:
@@ -388,28 +472,28 @@ async def _main():
                     continue
                 key = (source, keywords, s.get("location_filter", ""))
                 if key not in aggregator_key_to_info:
-                    aggregator_key_to_info[key] = {"label": s.get("label", source), "users": []}
-                if user not in aggregator_key_to_info[key]["users"]:
-                    aggregator_key_to_info[key]["users"].append(user)
+                    aggregator_key_to_info[key] = {"label": s.get("label", source), "subscriptions": []}
+                aggregator_key_to_info[key]["subscriptions"].append((user, s))
             elif source == _MULTI_BOARD_SOURCE:
                 job_title = s.get("job_title", "").strip()
                 if not job_title:
                     logger.warning(f"Multi-board search {s.get('search_id')} has no job_title — skipping")
                     continue
-                seniority = s.get("seniority", "").strip()
+                seniorities = s.get("seniorities") or ([] if not s.get("seniority") else [s["seniority"]])
                 location_filter = s.get("location_filter", "")
 
                 # 1) LinkedIn — auto-built URL, folded into the existing LinkedIn flow
-                li_url = _build_linkedin_url(job_title, seniority, location_filter)
-                linkedin_url_to_users.setdefault(li_url, []).append(user)
+                for location in _location_alternatives(location_filter):
+                    for seniority in seniorities or [""]:
+                        li_url = _build_linkedin_url(job_title, seniority, location)
+                        linkedin_url_to_users.setdefault(li_url, []).append((user, s))
 
                 # 2) Every aggregator board — folded into the existing aggregator flow
                 for agg_source in _AGGREGATOR_SOURCES:
                     key = (agg_source, job_title, location_filter)
                     if key not in aggregator_key_to_info:
-                        aggregator_key_to_info[key] = {"label": s.get("label", job_title), "users": []}
-                    if user not in aggregator_key_to_info[key]["users"]:
-                        aggregator_key_to_info[key]["users"].append(user)
+                        aggregator_key_to_info[key] = {"label": s.get("label", job_title), "subscriptions": []}
+                    aggregator_key_to_info[key]["subscriptions"].append((user, s))
 
     # ── LinkedIn scraping (existing Playwright flow) ──────────────────────────
 
@@ -431,34 +515,34 @@ async def _main():
 
     # ── ATS fetching (concurrent, zero-auth HTTP) ─────────────────────────────
 
-    ats_results: Dict[Tuple, Tuple[List[Dict], List]] = {}  # key → (jobs, users)
+    ats_results: Dict[Tuple, Tuple[List[Dict], List]] = {}  # key → (jobs, subscriptions)
 
     async def _fetch_and_store(key: Tuple, info: Dict):
         source, slug, keywords, location_filter = key
         try:
             jobs = await _fetch_ats(source, slug, info["label"], keywords, location_filter)
-            ats_results[key] = (jobs, info["users"])
+            ats_results[key] = (jobs, info["subscriptions"])
             logger.info(f"ATS {source}/{slug}: {len(jobs)} jobs")
         except Exception as e:
             logger.error(f"ATS {source}/{slug} failed: {e}")
-            ats_results[key] = ([], info["users"])
+            ats_results[key] = ([], info["subscriptions"])
 
     if ats_key_to_info:
         await asyncio.gather(*[_fetch_and_store(k, v) for k, v in ats_key_to_info.items()])
 
     # ── Aggregator fetching (concurrent, zero-auth HTTP) ──────────────────────
 
-    aggregator_results: Dict[Tuple, Tuple[List[Dict], List]] = {}  # key → (jobs, users)
+    aggregator_results: Dict[Tuple, Tuple[List[Dict], List]] = {}  # key → (jobs, subscriptions)
 
     async def _fetch_and_store_aggregator(key: Tuple, info: Dict):
         source, keywords, location_filter = key
         try:
             jobs = await _fetch_aggregator(source, keywords, location_filter)
-            aggregator_results[key] = (jobs, info["users"])
+            aggregator_results[key] = (jobs, info["subscriptions"])
             logger.info(f"Aggregator {source} ({keywords!r}): {len(jobs)} jobs")
         except Exception as e:
             logger.error(f"Aggregator {source} ({keywords!r}) failed: {e}")
-            aggregator_results[key] = ([], info["users"])
+            aggregator_results[key] = ([], info["subscriptions"])
 
     if aggregator_key_to_info:
         await asyncio.gather(*[_fetch_and_store_aggregator(k, v) for k, v in aggregator_key_to_info.items()])
@@ -468,7 +552,7 @@ async def _main():
     scorer_calls = 0
     total_notified = 0
 
-    def process_job_for_user(user: Dict, job: Dict):
+    def process_job_for_user(user: Dict, job: Dict, searches: List[Dict]):
         nonlocal scorer_calls, total_notified
         user_id = user["user_id"]
         job_id = job.get("job_id")
@@ -477,12 +561,27 @@ async def _main():
 
         job = _enrich_job(job)
 
+        # One physical posting can arrive through more than one saved search.
+        # Keep every passing label, but do not score it if no search actually
+        # accepts its post-fetch constraints.
+        search_mismatches = [_search_mismatch(job, search) for search in searches]
+        matching_searches = [search for search, mismatch in zip(searches, search_mismatches) if mismatch is None]
+        if not matching_searches:
+            _save_scored_job(db, user_id, job, next((mismatch for mismatch in search_mismatches if mismatch), {
+                "score": 0, "deal_breaker": True, "reasons": ["❌ Search filter mismatch"],
+                "summary": "Filtered automatically by this search.", "recommendation": "SKIP",
+            }), notified=False)
+            return
+        job["search_labels"] = list(dict.fromkeys(
+            str(search.get("label") or "Unnamed search") for search in matching_searches
+        ))
+
         profile = db.get_profile(user_id) or {}
         if not profile:
             _save_unscored(db, user_id, job)
             return
 
-        mismatch = _seniority_mismatch(job, profile) or _region_mismatch(job, profile)
+        mismatch = _seniority_mismatch(job, profile) or _experience_mismatch(job, profile) or _region_mismatch(job, profile)
         if mismatch:
             _save_scored_job(db, user_id, job, mismatch, notified=False)
             return
@@ -511,24 +610,31 @@ async def _main():
 
         _save_scored_job(db, user_id, job, result, notified=should_notify)
 
+    def process_for_subscriptions(job: Dict, subscriptions: List[Tuple[Dict, Dict]]):
+        by_user: Dict[str, Tuple[Dict, List[Dict]]] = {}
+        for user, search in subscriptions:
+            user_id = user["user_id"]
+            if user_id not in by_user:
+                by_user[user_id] = (user, [])
+            by_user[user_id][1].append(search)
+        for user, searches in by_user.values():
+            process_job_for_user(user, job, searches)
+
     # LinkedIn jobs → only the users who subscribed to that specific search URL
     for url, jobs in linkedin_results.items():
-        subscribed_users = linkedin_url_to_users.get(url, [])
+        subscriptions = linkedin_url_to_users.get(url, [])
         for job in jobs:
-            for user in subscribed_users:
-                process_job_for_user(user, job)
+            process_for_subscriptions(job, subscriptions)
 
     # ATS jobs → only the users who subscribed to that specific search
-    for key, (jobs, subscribed_users) in ats_results.items():
+    for key, (jobs, subscriptions) in ats_results.items():
         for job in jobs:
-            for user in subscribed_users:
-                process_job_for_user(user, job)
+            process_for_subscriptions(job, subscriptions)
 
     # Aggregator jobs → only the users who subscribed to that specific search
-    for key, (jobs, subscribed_users) in aggregator_results.items():
+    for key, (jobs, subscriptions) in aggregator_results.items():
         for job in jobs:
-            for user in subscribed_users:
-                process_job_for_user(user, job)
+            process_for_subscriptions(job, subscriptions)
 
     logger.info(f"Done. scorer_calls={scorer_calls}/{_MAX_SCORER_CALLS}, notified={total_notified}.")
 
@@ -550,6 +656,7 @@ def _save_scored_job(db: DynamoDBClient, user_id: str, job: dict, result: dict, 
         "company_size_source": job.get("company_size_source"),
         "company_size_raw": job.get("company_size_raw"),
         "experience_mentions": job.get("experience_mentions", []),
+        "search_labels": job.get("search_labels", []),
         "score": result["score"],
         "summary": result.get("summary", ""),
         "reasons": result.get("reasons", []),
@@ -586,6 +693,7 @@ def _save_unscored(db: DynamoDBClient, user_id: str, job: dict):
         "company_size_source": job.get("company_size_source"),
         "company_size_raw": job.get("company_size_raw"),
         "experience_mentions": job.get("experience_mentions", []),
+        "search_labels": job.get("search_labels", []),
         "score": 0,
         "summary": "",
         "reasons": [],
@@ -616,6 +724,7 @@ def _save_pending_scoring(db: DynamoDBClient, user_id: str, job: dict, error: st
         "company_size_source": job.get("company_size_source"),
         "company_size_raw": job.get("company_size_raw"),
         "experience_mentions": job.get("experience_mentions", []),
+        "search_labels": job.get("search_labels", []),
         "score": 0,
         "summary": "",
         "reasons": ["Scoring pending — provider temporarily unavailable"],
@@ -715,7 +824,7 @@ async def _retry_pending_scoring(
             if retried >= _MAX_PENDING_RETRIES_PER_RUN:
                 break
             job = _enrich_job(job)
-            mismatch = _seniority_mismatch(job, profile) or _region_mismatch(job, profile)
+            mismatch = _seniority_mismatch(job, profile) or _experience_mismatch(job, profile) or _region_mismatch(job, profile)
             if mismatch:
                 _save_scored_job(db, user["user_id"], job, mismatch, notified=False)
                 continue

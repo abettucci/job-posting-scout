@@ -76,6 +76,10 @@ def _profile_to_text(profile: Dict) -> str:
         lines.append("Prefer: " + ", ".join(profile["prefer"]))
     if profile.get("eligible_regions"):
         lines.append("Eligible work regions: " + ", ".join(profile["eligible_regions"]))
+    if profile.get("target_seniorities"):
+        lines.append("Target seniority levels: " + ", ".join(profile["target_seniorities"]))
+    if profile.get("max_required_years"):
+        lines.append(f"Maximum required experience: {profile['max_required_years']} years")
     return "\n".join(lines)
 
 

@@ -53,7 +53,7 @@ _SENIORITY_PATTERNS = [
     ("internship", re.compile(r"\b(intern(ship)?|trainee|new\s+grad|graduate\s+program)\b", re.I)),
     ("entry", re.compile(r"\b(entry[\s-]?level|junior|jr\.?)\b", re.I)),
     ("associate", re.compile(r"\bassociate\b", re.I)),
-    ("staff", re.compile(r"\b(staff|principal|lead)\b", re.I)),
+    ("staff", re.compile(r"\b(staff|principal|lead|expert|specialist)\b", re.I)),
     ("senior", re.compile(r"\b(senior|sr\.?|semi[\s-]?senior|mid[\s-]?senior)\b", re.I)),
     ("mid", re.compile(r"\bmid[\s-]?level\b", re.I)),
 ]
@@ -96,6 +96,14 @@ def extract_requirements(title: str, description: str) -> Dict[str, Optional[obj
         # years backend). The smallest explicit experience bar is the honest
         # overall minimum; the per-skill details remain in experience_mentions.
         min_years_experience = min(years_found)
+
+    # Most boards omit a structured seniority field and many ordinary titles
+    # simply say "Software Engineer". Treat those as junior/entry by default,
+    # unless the posting explicitly asks for more than five years, in which
+    # case Mid is the highest inference we make. Explicit title signals above
+    # always win, so this never downgrades Senior/Staff/Lead/Expert/Specialist.
+    if seniority_level is None:
+        seniority_level = "mid" if min_years_experience is not None and min_years_experience > 5 else "entry"
 
     return {"seniority_level": seniority_level, "min_years_experience": min_years_experience}
 

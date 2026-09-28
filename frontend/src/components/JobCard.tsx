@@ -41,6 +41,10 @@ const SENIORITY_LABELS: Record<string, string> = {
   executive: "Executive",
 };
 
+function effectiveSeniority(job: Job): string {
+  return job.seniority_level ?? (job.min_years_experience !== null && job.min_years_experience > 5 ? "mid" : "entry");
+}
+
 const REGION_SCOPE: Record<string, { icon: string; label: string; style: string }> = {
   worldwide: { icon: "🌍", label: "Worldwide", style: "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600" },
   latam: { icon: "🌎", label: "LATAM", style: "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600" },
@@ -73,6 +77,8 @@ export default function JobCard({ job, onAppliedChange, onDismissedChange }: Pro
   const router = useRouter();
   const [applying, setApplying] = useState(false);
   const [dismissing, setDismissing] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const seniorityLevel = effectiveSeniority(job);
   const foundDate = new Date(job.timestamp).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -85,12 +91,14 @@ export default function JobCard({ job, onAppliedChange, onDismissedChange }: Pro
 
   const handleToggleApplied = async () => {
     const next = !job.applied;
+    setActionError("");
     setApplying(true);
     try {
       await api.setJobApplied(job.job_id, next);
       onAppliedChange?.(job.job_id, next);
     } catch (err) {
       console.error("Failed to update applied status", err);
+      setActionError("Couldn’t update this job. Please try again.");
     } finally {
       setApplying(false);
     }
@@ -98,12 +106,14 @@ export default function JobCard({ job, onAppliedChange, onDismissedChange }: Pro
 
   const handleToggleDismissed = async () => {
     const next = !job.dismissed;
+    setActionError("");
     setDismissing(true);
     try {
       await api.setJobDismissed(job.job_id, next);
       onDismissedChange?.(job.job_id, next);
     } catch (err) {
       console.error("Failed to update dismissed status", err);
+      setActionError("Couldn’t update this job. Please try again.");
     } finally {
       setDismissing(false);
     }
@@ -124,11 +134,16 @@ export default function JobCard({ job, onAppliedChange, onDismissedChange }: Pro
           <p className="text-sm text-slate-600 dark:text-slate-400">
             {job.company} · {job.location}
           </p>
-          {(job.seniority_level || job.min_years_experience || job.region_scope || job.company_size_hint || job.experience_mentions.length > 0) && (
+          {job.search_labels && job.search_labels.length > 0 && (
+            <p className="text-xs text-slate-500 mt-1">
+              Found by: <span className="font-medium text-slate-600 dark:text-slate-300">{job.search_labels.join(" · ")}</span>
+            </p>
+          )}
+          {(seniorityLevel || job.min_years_experience || job.region_scope || job.company_size_hint || job.experience_mentions.length > 0) && (
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-              {job.seniority_level && (
+              {seniorityLevel && (
                 <span className="tag border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600">
-                  🎯 {SENIORITY_LABELS[job.seniority_level] ?? job.seniority_level}
+                  🎯 {SENIORITY_LABELS[seniorityLevel] ?? seniorityLevel}
                 </span>
               )}
               {job.min_years_experience && (
@@ -266,6 +281,7 @@ export default function JobCard({ job, onAppliedChange, onDismissedChange }: Pro
           </a>
         </div>
       </div>
+      {actionError && <p role="alert" className="text-xs text-red-500">{actionError}</p>}
     </article>
   );
 }

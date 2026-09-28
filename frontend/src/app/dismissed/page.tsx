@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { api, type Job } from "@/lib/api";
@@ -17,6 +17,7 @@ export default function DismissedPage() {
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [fetching, setFetching] = useState(true);
+  const hiddenJobIds = useRef(new Set<string>());
 
   useEffect(() => {
     if (!loading && !user) router.replace("/");
@@ -26,7 +27,7 @@ export default function DismissedPage() {
     if (!user) return;
     setFetching(true);
     api.getJobs(0, 100, false, true)
-      .then((result) => setJobs(result.items))
+      .then((result) => setJobs(result.items.filter((job) => !hiddenJobIds.current.has(job.job_id))) )
       .finally(() => setFetching(false));
   }, [user]);
 
@@ -62,7 +63,10 @@ export default function DismissedPage() {
                 key={job.job_id}
                 job={job}
                 onDismissedChange={(jobId, dismissed) => {
-                  if (!dismissed) setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                  if (!dismissed) {
+                    hiddenJobIds.current.add(jobId);
+                    setJobs((current) => current.filter((job) => job.job_id !== jobId));
+                  }
                 }}
               />
             ))}

@@ -65,7 +65,7 @@ class AssistantMonitor(BaseModel):
 
 
 def _profile_text(profile: dict) -> dict:
-    return {key: profile.get(key, []) for key in ("must_have", "nice_to_have", "prefer", "deal_breakers", "seniority", "eligible_regions")}
+    return {key: profile.get(key, []) for key in ("must_have", "nice_to_have", "prefer", "deal_breakers", "seniority", "target_seniorities", "max_required_years", "eligible_regions")}
 
 
 def _normalize_intent(payload: dict) -> dict:
@@ -83,17 +83,24 @@ def _normalize_intent(payload: dict) -> dict:
     }
 
 
-def _matching_jobs(jobs: List[dict], intent: dict) -> List[dict]:
+def _matching_jobs(jobs: List[dict], intent: dict, profile: dict) -> List[dict]:
     terms = [intent["job_title"], *intent["keywords"]]
     terms = [term.casefold() for term in terms if term]
     matches = []
+    target_seniorities = profile.get("target_seniorities") or ([] if not profile.get("seniority") else [profile["seniority"]])
+    max_required_years = profile.get("max_required_years")
     for job in jobs:
         if job.get("deal_breaker") or job.get("dismissed"):
             continue
         haystack = f"{job.get('title', '')} {job.get('company', '')} {job.get('location', '')} {job.get('description', '')}".casefold()
         if terms and not any(term in haystack for term in terms):
             continue
-        if intent["seniority"] and job.get("seniority_level") and job.get("seniority_level") != intent["seniority"]:
+        job_seniority = job.get("seniority_level") or ("mid" if (job.get("min_years_experience") or 0) > 5 else "entry")
+        if intent["seniority"] and job_seniority != intent["seniority"]:
+            continue
+        if target_seniorities and job_seniority not in target_seniorities:
+            continue
+        if isinstance(max_required_years, (int, float)) and max_required_years > 0 and isinstance(job.get("min_years_experience"), (int, float)) and job["min_years_experience"] > max_required_years:
             continue
         matches.append(job)
     return sorted(matches, key=lambda job: (job.get("score", 0), job.get("timestamp", "")), reverse=True)[:20]
@@ -112,7 +119,7 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
         except ScoringUnavailableError:
             raise HTTPException(503, "El asistente no está disponible ahora. Tus búsquedas no se modificaron; probá de nuevo en un rato.") from None
         jobs, _ = db.get_user_jobs(user["user_id"], min_score=0, limit=100, applied=False, dismissed=False)
-        return {"intent": intent, "matches": _matching_jobs(jobs, intent)}
+        return {"intent": intent, "matches": _matching_jobs(jobs, intent, profile)}
 
     @router.post("/monitor")
     def monitor(body: AssistantMonitor, user=Depends(get_current_user)):

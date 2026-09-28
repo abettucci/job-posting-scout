@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, KeyboardEvent } from "react";
-import { api, Profile, type Seniority } from "@/lib/api";
+import { api, Profile, type Seniority, type SeniorityLevel } from "@/lib/api";
 
-const SENIORITY_OPTIONS: { id: Seniority; label: string }[] = [
-  { id: "", label: "No preference" },
+const SENIORITY_OPTIONS: { id: SeniorityLevel; label: string }[] = [
   { id: "internship", label: "Internship" },
-  { id: "entry", label: "Entry level" },
+  { id: "entry", label: "Junior / Entry level" },
   { id: "associate", label: "Associate" },
   { id: "mid", label: "Mid-level" },
   { id: "senior", label: "Senior" },
@@ -88,8 +87,19 @@ export default function ProfileEditor({ initial, onSaved }: Props) {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
 
-  const set = (key: keyof Profile) => (val: string[] | number | Seniority) =>
+  const set = (key: keyof Profile) => (val: string[] | number | Seniority | null) =>
     setProfile((p) => ({ ...p, [key]: val }));
+
+  const toggleSeniority = (level: SeniorityLevel) => {
+    setProfile((current) => {
+      const selected = current.target_seniorities.includes(level)
+        ? current.target_seniorities.filter((item) => item !== level)
+        : [...current.target_seniorities, level];
+      // Keep the old single-value field in sync so older API deployments and
+      // any external clients still have a useful fallback.
+      return { ...current, target_seniorities: selected, seniority: selected[0] ?? "" };
+    });
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -139,21 +149,46 @@ export default function ProfileEditor({ initial, onSaved }: Props) {
         color="purple"
       />
 
-      <div>
-        <label className="label">Your Seniority</label>
+      <fieldset>
+        <legend className="label">Levels you want to see</legend>
         <p className="text-xs text-slate-500 mb-2">
-          If set, postings whose title clearly identifies a different level (e.g. Mid-level vs. Senior) are
-          automatically filtered out before scoring. This avoids LinkedIn&apos;s broad “Mid-Senior” bucket mixing them.
+          Select every level you would consider. A posting whose title clearly says Senior, Staff or Lead is filtered
+          before scoring when it is not selected. This avoids LinkedIn&apos;s broad “Mid-Senior” bucket mixing them.
         </p>
-        <select
-          className="input"
-          value={profile.seniority}
-          onChange={(e) => set("seniority")(e.target.value as Seniority)}
-        >
-          {SENIORITY_OPTIONS.map((o) => (
-            <option key={o.id} value={o.id}>{o.label}</option>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {SENIORITY_OPTIONS.map((option) => (
+            <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={profile.target_seniorities.includes(option.id)}
+                onChange={() => toggleSeniority(option.id)}
+                className="accent-brand"
+              />
+              {option.label}
+            </label>
           ))}
-        </select>
+        </div>
+      </fieldset>
+
+      <div>
+        <label className="label" htmlFor="max-required-years">Maximum required experience</label>
+        <p className="text-xs text-slate-500 mb-2">
+          Don&apos;t show jobs that explicitly require more than this many years. Leave blank for no cap. This is applied before AI scoring and Telegram notifications.
+        </p>
+        <input
+          id="max-required-years"
+          type="number"
+          min={1}
+          max={40}
+          inputMode="numeric"
+          value={profile.max_required_years ?? ""}
+          onChange={(event) => {
+            const value = event.target.value;
+            set("max_required_years")(value === "" ? null : Number(value));
+          }}
+          placeholder="e.g. 3"
+          className="input max-w-40"
+        />
       </div>
 
       <TagList
