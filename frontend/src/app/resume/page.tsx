@@ -244,10 +244,15 @@ export default function ResumePage() {
   // Tailor state
   const [tailorJobId, setTailorJobId] = useState<string | null>(null);
   const [tailorJobDesc, setTailorJobDesc] = useState("");
+  const [tailorCompany, setTailorCompany] = useState("");
+  const [tailorRole, setTailorRole] = useState("");
   const [tailoring, setTailoring] = useState(false);
   const [tailorError, setTailorError] = useState("");
   const [tailoredActive, setTailoredActive] = useState(false);
   const [originalResume, setOriginalResume] = useState<ResumeData | null>(null);
+  const [applicationAnswers, setApplicationAnswers] = useState<{ why_this_role: string; team_contribution: string } | null>(null);
+  const [applicationAnswering, setApplicationAnswering] = useState(false);
+  const [applicationAnswersError, setApplicationAnswersError] = useState("");
 
   // Language state
   const [selectedLanguage, setSelectedLanguage] = useState("Original");
@@ -304,6 +309,8 @@ export default function ResumePage() {
   // Cover letter state
   const [coverJobId, setCoverJobId] = useState<string | null>(null);
   const [coverJobDesc, setCoverJobDesc] = useState("");
+  const [coverCompany, setCoverCompany] = useState("");
+  const [coverRole, setCoverRole] = useState("");
   const [coverLetter, setCoverLetter] = useState("");
   const [coverGenerating, setCoverGenerating] = useState(false);
   const [coverDownloading, setCoverDownloading] = useState(false);
@@ -326,6 +333,8 @@ export default function ResumePage() {
     const role = params.get("role");
     if (company) setHistoryCompany(company);
     if (role) setHistoryRole(role);
+    if (company) { setTailorCompany(company); setCoverCompany(company); }
+    if (role) { setTailorRole(role); setCoverRole(role); }
     if (tailorId) {
       setTailorJobId(tailorId);
       setActiveTab("tailor");
@@ -349,6 +358,8 @@ export default function ResumePage() {
       const { letter } = await api.generateCoverLetter({
         job_id: coverJobId ?? undefined,
         job_description: coverJobId ? undefined : coverJobDesc.trim(),
+        company: coverCompany.trim() || undefined,
+        role: coverRole.trim() || undefined,
       });
       setCoverLetter(letter);
     } catch (e: unknown) {
@@ -391,6 +402,8 @@ export default function ResumePage() {
       const tailored = await api.tailorResume({
         job_id: tailorJobId ?? undefined,
         job_description: tailorJobId ? undefined : tailorJobDesc.trim(),
+        company: tailorCompany.trim() || undefined,
+        role: tailorRole.trim() || undefined,
       });
       setOriginalResume(resume);
       setResume(tailored);
@@ -402,6 +415,29 @@ export default function ResumePage() {
       setTailorError(e instanceof Error ? e.message : "Could not tailor resume");
     } finally {
       setTailoring(false);
+    }
+  };
+
+  const handlePrepareApplicationAnswers = async () => {
+    if (!tailorJobId && !tailorJobDesc.trim()) return;
+    if (!hasProfessionalContent(resume)) {
+      setApplicationAnswersError("Your saved resume appears incomplete. Upload, review, and save your resume before preparing application answers.");
+      return;
+    }
+    setApplicationAnswering(true);
+    setApplicationAnswersError("");
+    try {
+      const answers = await api.prepareApplicationAnswers({
+        job_id: tailorJobId ?? undefined,
+        job_description: tailorJobId ? undefined : tailorJobDesc.trim(),
+        company: tailorCompany.trim() || undefined,
+        role: tailorRole.trim() || undefined,
+      });
+      setApplicationAnswers(answers);
+    } catch (e: unknown) {
+      setApplicationAnswersError(e instanceof Error ? e.message : "Could not prepare application answers");
+    } finally {
+      setApplicationAnswering(false);
     }
   };
 
@@ -1322,6 +1358,11 @@ export default function ResumePage() {
                 placeholder="Paste the full job description here..."
                 className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
               />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Company (for history)" value={tailorCompany} onChange={setTailorCompany} placeholder="e.g. dLocal" />
+                <Field label="Role (for history)" value={tailorRole} onChange={setTailorRole} placeholder="e.g. Cloud Architect" />
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Optional, but it keeps this material grouped under the right company in Career history.</p>
             </div>
           )}
 
@@ -1336,6 +1377,34 @@ export default function ResumePage() {
           >
             {tailoring ? "Tailoring with Claude..." : "Generate tailored CV →"}
           </button>
+
+          <section className="border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-4 bg-slate-50/60 dark:bg-slate-800/30">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand">Application prep</p>
+              <h3 className="font-semibold text-slate-900 dark:text-white mt-1">Prepare the two questions you will almost always get</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Drafts are grounded in your CV and this job description, editable, and saved automatically in Career history.</p>
+            </div>
+            {applicationAnswersError && <div className="p-3 bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 rounded text-red-700 dark:text-red-300 text-sm">{applicationAnswersError}</div>}
+            <button
+              onClick={handlePrepareApplicationAnswers}
+              disabled={applicationAnswering || (!tailorJobId && !tailorJobDesc.trim())}
+              className="px-5 py-2.5 bg-slate-900 dark:bg-white hover:bg-slate-700 dark:hover:bg-slate-200 disabled:opacity-50 text-white dark:text-slate-900 text-sm font-medium rounded-lg"
+            >
+              {applicationAnswering ? "Preparing your answers..." : "Prepare application answers →"}
+            </button>
+            {applicationAnswers && (
+              <div className="space-y-4 pt-1">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-slate-800 dark:text-slate-200">Why do you want to work here and in this role?</label>
+                  <textarea value={applicationAnswers.why_this_role} onChange={(e) => setApplicationAnswers((answers) => answers ? { ...answers, why_this_role: e.target.value } : answers)} rows={7} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-900 dark:text-white resize-y" />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-slate-800 dark:text-slate-200">What can you contribute to the team?</label>
+                  <textarea value={applicationAnswers.team_contribution} onChange={(e) => setApplicationAnswers((answers) => answers ? { ...answers, team_contribution: e.target.value } : answers)} rows={7} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-900 dark:text-white resize-y" />
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       )}
 
@@ -1370,6 +1439,11 @@ export default function ResumePage() {
                 placeholder="Paste the full job description here..."
                 className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-brand resize-y"
               />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Company (for history)" value={coverCompany} onChange={setCoverCompany} placeholder="e.g. dLocal" />
+                <Field label="Role (for history)" value={coverRole} onChange={setCoverRole} placeholder="e.g. Cloud Architect" />
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Optional, but it keeps the generated letter identifiable in Career history.</p>
             </div>
           )}
 
@@ -1384,6 +1458,8 @@ export default function ResumePage() {
           >
             {coverGenerating ? "Writing with Claude..." : "Generate cover letter →"}
           </button>
+
+          {coverLetter && <p className="text-xs text-emerald-700 dark:text-emerald-300">Saved automatically to Career history.</p>}
 
           {coverLetter && (
             <div className="space-y-3">

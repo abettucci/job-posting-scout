@@ -156,11 +156,15 @@ export const api = {
     req<UpskillResult>("/resume/upskill", { method: "POST", body: JSON.stringify(body) }),
   answerCareerQuestion: (body: { question: string; job_description?: string; job_id?: string }) =>
     req<{ answer: string }>("/resume/career-answer", { method: "POST", body: JSON.stringify(body) }),
-  tailorResume: (body: { job_description?: string; job_id?: string }) =>
+  prepareApplicationAnswers: (body: { job_description?: string; job_id?: string; company?: string; role?: string }) =>
+    req<{ why_this_role: string; team_contribution: string }>("/resume/application-answers", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  tailorResume: (body: { job_description?: string; job_id?: string; company?: string; role?: string }) =>
     req<ResumeData>("/resume/tailor", { method: "POST", body: JSON.stringify(body) }),
   translateResume: (language: string) =>
     req<ResumeData>("/resume/translate", { method: "POST", body: JSON.stringify({ language }) }),
-  generateCoverLetter: (body: { job_description?: string; job_id?: string }) =>
+  generateCoverLetter: (body: { job_description?: string; job_id?: string; company?: string; role?: string }) =>
     req<{ letter: string }>("/resume/cover-letter", { method: "POST", body: JSON.stringify(body) }),
   downloadCoverLetter: (resume: ResumeData, letter: string, compile = true) =>
     reqBlob("/resume/cover-letter/generate", {
