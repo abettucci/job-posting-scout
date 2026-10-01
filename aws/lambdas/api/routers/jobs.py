@@ -165,6 +165,30 @@ def _brief_is_fresh(job: Dict[str, Any]) -> bool:
     return datetime.now(timezone.utc) - generated_at <= _BRIEF_CACHE_TTL
 
 
+def _save_brief_to_history(db: Any, user_id: str, job: Dict[str, Any], brief: Dict[str, Any]) -> None:
+    """Keep a company brief alongside the other generated career material.
+
+    The job row still keeps its short cache for fast reopening; this separate
+    history copy lets the candidate return to it during the application cycle.
+    """
+    entry = {
+        "user_id": user_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "ttl": int((datetime.now(timezone.utc) + timedelta(days=90)).timestamp()),
+        "artifact_type": "company_brief",
+        "company": str(job.get("company") or "General preparation")[:200],
+        "role": str(job.get("title") or "Interview preparation")[:200],
+        "job_id": str(job.get("job_id") or ""),
+        "template": "",
+        "language": "Original",
+        "content": brief,
+        "question": "",
+        "resume": None,
+    }
+    if not db.save_cv_history(entry):
+        logger.error("Could not persist company brief to career history")
+
+
 def _generate_interview_brief(client: Anthropic, job: Dict[str, Any], sources: List[Dict[str, str]]) -> Dict[str, Any]:
     job_context = {
         "company": str(job.get("company") or ""),
@@ -268,6 +292,7 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
         brief = _generate_interview_brief(anthropic, job, sources)
         if not db.save_user_job_interview_brief(user["user_id"], job_id, brief):
             raise HTTPException(409, "The job is no longer available. Please refresh and try again.")
+        _save_brief_to_history(db, user["user_id"], job, brief)
         return brief
 
     return router

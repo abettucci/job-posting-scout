@@ -161,6 +161,14 @@ resource "aws_dynamodb_table" "cv_history" {
     name = "created_at"
     type = "S"
   }
+  # Stored career material is useful for an active application cycle, while
+  # still being intentionally short-lived. DynamoDB TTL is asynchronous, so
+  # entries remain for at least this 90-day window and may persist a little
+  # longer before the service removes them.
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

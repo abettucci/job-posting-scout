@@ -9,7 +9,7 @@ import re
 import subprocess
 import tempfile
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 import httpx
@@ -153,6 +153,59 @@ class CvHistorySaveRequest(BaseModel):
 
 class CvHistoryDownloadRequest(BaseModel):
     created_at: str
+
+
+_HISTORY_TTL_DAYS = 90
+
+
+def _history_context(db: Any, user_id: str, job_id: Optional[str], company: str = "", role: str = "") -> tuple[str, str]:
+    """Prefer the saved job's company/role, while keeping manually-pasted
+    prompts useful under a stable general-preparation group."""
+    job = db.get_user_job(user_id, job_id) if job_id else None
+    return (
+        str((job or {}).get("company") or company or "General preparation").strip()[:200],
+        str((job or {}).get("title") or role or "Interview preparation").strip()[:200],
+    )
+
+
+def _save_history_artifact(
+    db: Any,
+    user_id: str,
+    artifact_type: str,
+    *,
+    company: str,
+    role: str,
+    job_id: Optional[str] = None,
+    template: str = "",
+    language: str = "Original",
+    resume: Optional[Dict] = None,
+    content: Any = None,
+    question: str = "",
+) -> Dict:
+    """Persist generated material immediately, independent of a download.
+
+    TTL is deliberately attached to every new entry so it survives an active
+    recruiting loop (at least 90 days) without retaining career material
+    indefinitely. DynamoDB deletes TTL rows asynchronously after expiry.
+    """
+    created_at = datetime.now(timezone.utc).isoformat()
+    entry = {
+        "user_id": user_id,
+        "created_at": created_at,
+        "ttl": int((datetime.now(timezone.utc) + timedelta(days=_HISTORY_TTL_DAYS)).timestamp()),
+        "artifact_type": artifact_type,
+        "company": company,
+        "role": role,
+        "job_id": job_id or "",
+        "template": template,
+        "language": language,
+        "resume": resume,
+        "content": content,
+        "question": question,
+    }
+    if not db.save_cv_history(entry):
+        raise HTTPException(500, "Could not save generated material to history")
+    return entry
 
 
 # ── Text extraction ───────────────────────────────────────────────────────────
@@ -1473,7 +1526,13 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
                 db, user["user_id"], body.job_description, body.job_id
             )
 
-        return {"answer": _answer_career_question(_tailor_anthropic, resume, body.question, job_context)}
+        answer = _answer_career_question(_tailor_anthropic, resume, body.question, job_context)
+        company, role = _history_context(db, user["user_id"], body.job_id)
+        _save_history_artifact(
+            db, user["user_id"], "interview_answer", company=company, role=role,
+            job_id=body.job_id, question=body.question, content=answer,
+        )
+        return {"answer": answer}
 
     @router.post("/tailor")
     def tailor_resume(body: TailorRequest, user=Depends(get_current_user)):
@@ -1486,6 +1545,11 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
 
         tailored = _tailor_with_claude(_tailor_anthropic, resume, job_description)
         tailored = _review_tailored_resume(_tailor_anthropic, resume, tailored, job_description)
+        company, role = _history_context(db, user["user_id"], body.job_id)
+        _save_history_artifact(
+            db, user["user_id"], "tailored_cv", company=company, role=role,
+            job_id=body.job_id, template="typst-silver", resume=tailored.model_dump(),
+        )
         return tailored.model_dump()
 
     @router.post("/translate")
@@ -1509,6 +1573,11 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
 
         letter = _generate_cover_letter(_anthropic, resume, job_description)
         letter = _review_cover_letter(_anthropic, letter, resume, job_description)
+        company, role = _history_context(db, user["user_id"], body.job_id)
+        _save_history_artifact(
+            db, user["user_id"], "cover_letter", company=company, role=role,
+            job_id=body.job_id, content=letter,
+        )
         return {"letter": letter}
 
     @router.post("/cover-letter/generate")
@@ -1523,24 +1592,25 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
 
     @router.post("/history")
     def save_cv_history(body: CvHistorySaveRequest, user=Depends(get_current_user)):
-        entry = {
-            "user_id": user["user_id"],
-            "created_at": datetime.utcnow().isoformat(),
-            "company": body.company.strip(),
-            "role": body.role.strip(),
-            "template": body.template,
-            "language": body.language,
-            "job_id": body.job_id or "",
-            "resume": body.resume.model_dump(),
-        }
-        if not db.save_cv_history(entry):
-            raise HTTPException(500, "Error saving CV history entry")
+        entry = _save_history_artifact(
+            db, user["user_id"], "tailored_cv", company=body.company.strip(), role=body.role.strip(),
+            job_id=body.job_id, template=body.template, language=body.language, resume=body.resume.model_dump(),
+        )
         return {k: v for k, v in entry.items() if k != "resume"}
 
     @router.get("/history")
     def list_cv_history(user=Depends(get_current_user)):
         items = db.get_user_cv_history(user["user_id"])
-        return [{k: v for k, v in item.items() if k != "resume"} for item in items]
+        return [{k: v for k, v in item.items() if k not in {"resume", "content", "question"}} for item in items]
+
+    @router.get("/history/item")
+    def get_cv_history_item(created_at: str = Query(...), user=Depends(get_current_user)):
+        entry = db.get_cv_history_entry(user["user_id"], created_at)
+        if not entry:
+            raise HTTPException(404, "History entry not found")
+        # A tailored CV is downloaded/recompiled through the dedicated endpoint;
+        # text artifacts can be opened in History without exposing unrelated rows.
+        return {k: v for k, v in entry.items() if k != "resume"}
 
     @router.post("/history/download")
     def download_cv_history(body: CvHistoryDownloadRequest, user=Depends(get_current_user)):

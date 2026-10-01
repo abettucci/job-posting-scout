@@ -170,6 +170,8 @@ export const api = {
   saveCvHistory: (body: { company: string; role: string; template: ResumeTemplate; language?: string; job_id?: string; resume: ResumeData }) =>
     req<CvHistoryEntry>("/resume/history", { method: "POST", body: JSON.stringify(body) }),
   getCvHistory: () => req<CvHistoryEntry[]>("/resume/history"),
+  getCvHistoryItem: (createdAt: string) =>
+    req<CvHistoryArtifact>(`/resume/history/item?created_at=${encodeURIComponent(createdAt)}`),
   downloadCvHistory: (created_at: string) =>
     reqBlob("/resume/history/download", { method: "POST", body: JSON.stringify({ created_at }) }),
   deleteCvHistory: (created_at: string) =>
@@ -442,6 +444,13 @@ export interface CvHistoryEntry {
   template: ResumeTemplate;
   language: string;
   job_id: string;
+  artifact_type?: "tailored_cv" | "cover_letter" | "interview_answer" | "company_brief";
+  ttl?: number;
+}
+
+export interface CvHistoryArtifact extends CvHistoryEntry {
+  content?: string | Record<string, unknown>;
+  question?: string;
 }
 
 export interface ResumeCheckSection {

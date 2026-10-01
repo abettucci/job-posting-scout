@@ -13,6 +13,7 @@ import {
   type ResumeEducation,
   type ResumeProject,
   type CvHistoryEntry,
+  type CvHistoryArtifact,
   type AtsCheckResult,
   type ExpandResult,
   type ResumeSkills,
@@ -297,6 +298,8 @@ export default function ResumePage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyListError, setHistoryListError] = useState("");
   const [downloadingEntry, setDownloadingEntry] = useState<string | null>(null);
+  const [historyPreview, setHistoryPreview] = useState<CvHistoryArtifact | null>(null);
+  const [historyPreviewLoading, setHistoryPreviewLoading] = useState<string | null>(null);
 
   // Cover letter state
   const [coverJobId, setCoverJobId] = useState<string | null>(null);
@@ -617,8 +620,21 @@ export default function ResumePage() {
     try {
       await api.deleteCvHistory(created_at);
       setCvHistory((items) => items.filter((i) => i.created_at !== created_at));
+      if (historyPreview?.created_at === created_at) setHistoryPreview(null);
     } catch (e: unknown) {
       setHistoryListError(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
+
+  const handleOpenHistoryEntry = async (entry: CvHistoryEntry) => {
+    setHistoryPreviewLoading(entry.created_at);
+    setHistoryListError("");
+    try {
+      setHistoryPreview(await api.getCvHistoryItem(entry.created_at));
+    } catch (e: unknown) {
+      setHistoryListError(e instanceof Error ? e.message : "Could not open saved material");
+    } finally {
+      setHistoryPreviewLoading(null);
     }
   };
 
@@ -1722,9 +1738,9 @@ export default function ResumePage() {
       {activeTab === "history" && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-xl font-semibold mb-1">CV History</h2>
+            <h2 className="text-xl font-semibold mb-1">Career history</h2>
             <p className="text-slate-600 dark:text-slate-400 text-sm">
-              Every version you've saved — by company and role — so you can find and re-download it later.
+              Tailored CVs, cover letters, practice answers and company briefs — grouped by company and kept for at least 90 days.
             </p>
           </div>
 
@@ -1736,41 +1752,49 @@ export default function ResumePage() {
             <p className="text-slate-600 dark:text-slate-400 text-sm">Loading…</p>
           ) : cvHistory.length === 0 ? (
             <div className="bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400 text-sm">
-              No saved versions yet. Tailor a CV and use &quot;Save to History&quot; on the download screen.
+              No generated material yet. New tailored CVs, cover letters and practice answers are saved here automatically.
             </div>
           ) : (
-            <div className="space-y-2">
-              {cvHistory.map((entry) => (
-                <div
-                  key={entry.created_at}
-                  className="flex items-center justify-between gap-3 bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-4"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium text-slate-900 dark:text-white truncate">{entry.role} — {entry.company}</p>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                      {new Date(entry.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
-                      {" · "}{TEMPLATES.find((t) => t.id === entry.template)?.label ?? entry.template}
-                      {entry.language && entry.language !== "Original" ? ` · ${entry.language}` : ""}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <button
-                      onClick={() => handleDownloadHistoryEntry(entry)}
-                      disabled={downloadingEntry === entry.created_at}
-                      className="text-xs text-brand hover:underline disabled:opacity-50 whitespace-nowrap"
-                    >
-                      {downloadingEntry === entry.created_at ? "Downloading..." : "Download"}
-                    </button>
-                    <button
-                      onClick={() => handleDeleteHistoryEntry(entry.created_at)}
-                      className="text-xs text-red-500 dark:text-red-400 hover:underline whitespace-nowrap"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
+            <div className="space-y-5">
+              {Object.entries(cvHistory.reduce<Record<string, CvHistoryEntry[]>>((groups, entry) => {
+                (groups[entry.company] ??= []).push(entry);
+                return groups;
+              }, {})).map(([company, entries]) => (
+                <section key={company} className="space-y-2">
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">{company}</h3>
+                  {entries.map((entry) => {
+                    const type = entry.artifact_type ?? "tailored_cv";
+                    const typeLabel = type === "cover_letter" ? "Cover letter" : type === "interview_answer" ? "Interview answer" : type === "company_brief" ? "Company brief" : "Tailored CV";
+                    const canDownload = type === "tailored_cv";
+                    return <div key={entry.created_at} className="flex items-center justify-between gap-3 bg-slate-100/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-900 dark:text-white truncate">{typeLabel} · {entry.role}</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                          {new Date(entry.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                          {canDownload && <> · {TEMPLATES.find((template) => template.id === entry.template)?.label ?? entry.template}</>}
+                          {entry.language && entry.language !== "Original" ? ` · ${entry.language}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        {canDownload ? <button onClick={() => handleDownloadHistoryEntry(entry)} disabled={downloadingEntry === entry.created_at} className="text-xs text-brand hover:underline disabled:opacity-50 whitespace-nowrap">{downloadingEntry === entry.created_at ? "Downloading..." : "Download"}</button> : <button onClick={() => handleOpenHistoryEntry(entry)} disabled={historyPreviewLoading === entry.created_at} className="text-xs text-brand hover:underline disabled:opacity-50 whitespace-nowrap">{historyPreviewLoading === entry.created_at ? "Opening..." : "Open"}</button>}
+                        <button onClick={() => handleDeleteHistoryEntry(entry.created_at)} className="text-xs text-red-500 dark:text-red-400 hover:underline whitespace-nowrap">Delete</button>
+                      </div>
+                    </div>;
+                  })}
+                </section>
               ))}
             </div>
+          )}
+
+          {historyPreview && (
+            <section className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl p-5 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="font-semibold text-slate-900 dark:text-white">{historyPreview.company} · {historyPreview.role}</h3>
+                <button onClick={() => setHistoryPreview(null)} className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white">Close</button>
+              </div>
+              {historyPreview.question && <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Question: {historyPreview.question}</p>}
+              <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 dark:text-slate-300 font-sans">{typeof historyPreview.content === "string" ? historyPreview.content : JSON.stringify(historyPreview.content, null, 2)}</pre>
+            </section>
           )}
         </div>
       )}

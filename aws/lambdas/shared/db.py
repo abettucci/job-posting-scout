@@ -493,6 +493,10 @@ class DynamoDBClient:
 
     # ── CV History ────────────────────────────────────────────────────────────
 
+    # This table now holds all generated career artifacts (tailored CVs, cover
+    # letters, practice answers and company briefs), not just CV versions. The
+    # method names stay compatible with the original CV-only endpoints.
+
     def save_cv_history(self, entry: Dict) -> bool:
         if not self.cv_history:
             return False
