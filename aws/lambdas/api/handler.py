@@ -44,9 +44,17 @@ _origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
 if _cfg.frontend_url:
     _origins.append(_cfg.frontend_url.rstrip("/"))
 
+# Vercel assigns each preview deployment a unique subdomain. Keeping this
+# constrained to this project and team lets a preview exercise login before it
+# is promoted, without opening credentialed CORS to arbitrary Vercel projects.
+_vercel_preview_origin = (
+    r"https://job-posting-scout-[a-z0-9-]+-bettucciagustin-9406s-projects\.vercel\.app"
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
+    allow_origin_regex=_vercel_preview_origin,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
