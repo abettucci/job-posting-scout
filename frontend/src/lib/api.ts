@@ -79,16 +79,16 @@ export const api = {
       `/jobs?min_score=${minScore}&limit=${limit}${applied !== undefined ? `&applied=${applied}` : ""}${dismissed !== undefined ? `&dismissed=${dismissed}` : ""}`
     ),
   createInterviewBrief: (jobId: string) =>
-    req<InterviewBrief>(`/jobs/${encodeURIComponent(jobId)}/interview-brief`, { method: "POST" }),
+    req<InterviewBrief>("/jobs/interview-brief", { method: "POST", body: JSON.stringify({ job_id: jobId }) }),
   setJobApplied: (jobId: string, applied: boolean) =>
-    req<{ job_id: string; applied: boolean }>(`/jobs/${encodeURIComponent(jobId)}/applied`, {
+    req<{ job_id: string; applied: boolean }>("/jobs/applied", {
       method: "PATCH",
-      body: JSON.stringify({ applied }),
+      body: JSON.stringify({ job_id: jobId, applied }),
     }),
   setJobDismissed: (jobId: string, dismissed: boolean) =>
-    req<{ job_id: string; dismissed: boolean }>(`/jobs/${encodeURIComponent(jobId)}/dismissed`, {
+    req<{ job_id: string; dismissed: boolean }>("/jobs/dismissed", {
       method: "PATCH",
-      body: JSON.stringify({ dismissed }),
+      body: JSON.stringify({ job_id: jobId, dismissed }),
     }),
 
   // Conversational discovery
@@ -100,6 +100,7 @@ export const api = {
   // Scraper
   runScraper: () => req<{ triggered: boolean }>("/scraper/run", { method: "POST" }),
   rescoreJobs: () => req<{ triggered: boolean }>("/scraper/run?mode=rescore", { method: "POST" }),
+  refreshJobsForCv: () => req<{ triggered: boolean }>("/scraper/run?mode=profile_refresh", { method: "POST" }),
 
   // Interviews
   getInterviews: () => req<Interview[]>("/interviews"),
@@ -341,6 +342,9 @@ export interface Job {
   score: number;
   summary: string;
   reasons: string[];
+  // Explicit job requirements that the scorer could not find in the saved CV.
+  // This field is normally present only on filtered (SKIP) postings.
+  missing_required_skills?: string[];
   deal_breaker: boolean;
   recommendation: "APPLY" | "MAYBE" | "SKIP";
   notified: boolean;

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { api, Profile } from "@/lib/api";
+import { api, Profile, type ResumeSkills } from "@/lib/api";
 import Nav from "@/components/Nav";
 import TelegramLink from "@/components/TelegramLink";
 import ProfileEditor from "@/components/ProfileEditor";
@@ -24,6 +24,7 @@ export default function SettingsPage() {
   const { user, loading, refresh } = useAuth();
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [resumeSkills, setResumeSkills] = useState<ResumeSkills | null>(null);
   const [fetching, setFetching] = useState(true);
 
   useEffect(() => {
@@ -32,7 +33,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!user) return;
-    api.getProfile().then((p) => {
+    Promise.all([api.getProfile(), api.getResume()]).then(([p, resume]) => {
       // GET /profile already merges score_threshold from the users table (always
       // fresh, re-fetched per request server-side) — trust it as-is. Overriding it
       // with the auth context's `user.score_threshold` used the *cached* value from
@@ -41,6 +42,7 @@ export default function SettingsPage() {
       // refreshed the cached `user` object, so this page kept clobbering the correct
       // fetched value with the stale one.
       setProfile({ ...EMPTY_PROFILE, ...p });
+      setResumeSkills(resume.skills ?? null);
     }).finally(() => setFetching(false));
   }, [user]);
 
@@ -61,6 +63,7 @@ export default function SettingsPage() {
         ) : (
           <ProfileEditor
             initial={profile ?? EMPTY_PROFILE}
+            resumeSkills={resumeSkills}
             onSaved={() => { refresh(); }}
           />
         )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, KeyboardEvent } from "react";
-import { api, Profile, type Seniority, type SeniorityLevel } from "@/lib/api";
+import { api, Profile, type ResumeSkills, type Seniority, type SeniorityLevel } from "@/lib/api";
 
 const SENIORITY_OPTIONS: { id: SeniorityLevel; label: string }[] = [
   { id: "internship", label: "Internship" },
@@ -78,14 +78,60 @@ function TagList({ label, description, items, onChange, color = "blue" }: TagLis
 
 interface Props {
   initial: Profile;
+  resumeSkills: ResumeSkills | null;
   onSaved: () => void;
 }
 
-export default function ProfileEditor({ initial, onSaved }: Props) {
+const RESUME_SKILL_GROUPS: { key: keyof ResumeSkills; label: string }[] = [
+  { key: "languages", label: "Languages" },
+  { key: "frameworks", label: "Frameworks" },
+  { key: "tools", label: "Tools & platforms" },
+  { key: "other", label: "Other" },
+];
+
+function ResumeSkillsSummary({ skills }: { skills: ResumeSkills | null }) {
+  const groups = RESUME_SKILL_GROUPS
+    .map((group) => ({ ...group, values: skills?.[group.key] ?? [] }))
+    .filter((group) => group.values.length > 0);
+
+  return (
+    <section className="rounded-lg border border-brand/30 bg-brand/5 p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h4 className="font-medium text-slate-900 dark:text-white">Skills from your CV</h4>
+          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-xl">
+            These are parsed when you upload your CV and used to reject a posting when an explicit required technology is not listed here. They are not the same as job preferences below.
+          </p>
+        </div>
+        <a href="/resume" className="btn-secondary text-sm whitespace-nowrap">Edit skills in Resume</a>
+      </div>
+      {groups.length > 0 ? (
+        <div className="space-y-2">
+          {groups.map((group) => (
+            <div key={group.key} className="flex items-start gap-2 flex-wrap">
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-400 w-28 pt-1">{group.label}</span>
+              {group.values.map((skill) => (
+                <span key={`${group.key}-${skill}`} className="tag border bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600">{skill}</span>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          No skills saved yet. Upload your CV or add them in Resume so the matcher can verify required technologies.
+        </p>
+      )}
+    </section>
+  );
+}
+
+export default function ProfileEditor({ initial, resumeSkills, onSaved }: Props) {
   const [profile, setProfile] = useState<Profile>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [refreshingMatches, setRefreshingMatches] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState("");
 
   const set = (key: keyof Profile) => (val: string[] | number | Seniority | null) =>
     setProfile((p) => ({ ...p, [key]: val }));
@@ -116,20 +162,45 @@ export default function ProfileEditor({ initial, onSaved }: Props) {
     }
   };
 
+  const handleRefreshMatches = async () => {
+    setRefreshingMatches(true);
+    setRefreshMessage("");
+    try {
+      await api.refreshJobsForCv();
+      setRefreshMessage("Active jobs are being re-evaluated with your saved CV. Refresh Jobs in a few minutes.");
+    } catch (err: unknown) {
+      setRefreshMessage(err instanceof Error ? `Couldn’t refresh matches: ${err.message}` : "Couldn’t refresh matches.");
+    } finally {
+      setRefreshingMatches(false);
+    }
+  };
+
   return (
     <div className="card space-y-5">
       <h3 className="font-medium text-slate-900 dark:text-white">Candidate Profile</h3>
 
+      <ResumeSkillsSummary skills={resumeSkills} />
+
+      <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+        <p className="text-xs text-slate-600 dark:text-slate-400 max-w-lg">
+          New postings use these skills automatically. To re-check active results already in Jobs after changing your CV, start an explicit refresh (up to 150 evaluations; no Telegram resend).
+        </p>
+        <button type="button" onClick={handleRefreshMatches} disabled={refreshingMatches} className="btn-secondary text-sm whitespace-nowrap">
+          {refreshingMatches ? "Refreshing…" : "Re-check active jobs"}
+        </button>
+        {refreshMessage && <p className="w-full text-xs text-slate-600 dark:text-slate-400">{refreshMessage}</p>}
+      </div>
+
       <TagList
-        label="Must Have"
-        description="Required skills or conditions — missing any of these lowers the score significantly."
+        label="Job must-haves"
+        description="Requirements you want a role to meet. Your own skills are managed from the CV section above."
         items={profile.must_have}
         onChange={set("must_have")}
         color="green"
       />
       <TagList
-        label="Nice to Have"
-        description="Preferred but not required."
+        label="Job nice-to-haves"
+        description="Role requirements that are valuable but not essential."
         items={profile.nice_to_have}
         onChange={set("nice_to_have")}
         color="blue"

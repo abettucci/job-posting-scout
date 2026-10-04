@@ -32,6 +32,7 @@ Return JSON with this exact structure:
 {{
   "score": <integer 0-100>,
   "deal_breaker": <true if any deal_breaker condition is met, false otherwise>,
+  "missing_required_skills": ["<explicit required technical skill not evidenced by the CV>", ...],
   "reasons": ["<short reason 1>", "<short reason 2>", ...],
   "summary": "<3-line plain-text summary of the role>",
   "recommendation": "<APPLY | SKIP | MAYBE>",
@@ -49,11 +50,16 @@ Rules:
   explicit job location that matches one of those regions as a positive
   availability match; never say the candidate's location preference is
   unspecified when that field is present.
-- Compare every explicit technical "must-have" in the posting against Must
-  have and Nice to have. If a required technology is absent from both lists,
-  treat it as an unverified gap and include a ❌ reason; never infer that a
-  generic backend/Python match implies C#, .NET, EF Core, or another distinct
-  required stack.
+- "Candidate skills from CV" is the source of truth for technologies the
+  candidate has actually listed. Compare every explicit technical requirement
+  marked must-have, required, mandatory, essential, or minimum qualification
+  against that list. Put every missing technology in missing_required_skills.
+  Do not include nice-to-have or preferred technologies in that array.
+- If missing_required_skills is non-empty, set deal_breaker=true,
+  recommendation=SKIP, score below 50, and include a ❌ reason. Never infer
+  that a generic backend/Python match implies C#, .NET, EF Core, or another
+  distinct required stack. Do not report missing skills when the candidate has
+  no saved CV skills.
 - notification_location_allowed is a strict delivery rule, independent of score:
   set true only when the posting is explicitly worldwide/global remote, or
   explicitly Argentina/Buenos Aires. Read both Location and Description.
@@ -66,6 +72,8 @@ Rules:
 
 def _profile_to_text(profile: Dict) -> str:
     lines = []
+    if profile.get("candidate_skills"):
+        lines.append("Candidate skills from CV: " + ", ".join(profile["candidate_skills"]))
     if profile.get("must_have"):
         lines.append("Must have: " + ", ".join(profile["must_have"]))
     if profile.get("nice_to_have"):
@@ -81,6 +89,38 @@ def _profile_to_text(profile: Dict) -> str:
     if profile.get("max_required_years"):
         lines.append(f"Maximum required experience: {profile['max_required_years']} years")
     return "\n".join(lines)
+
+
+def with_resume_skills(profile: Dict[str, Any], resume: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return a scoring profile enriched only with skills the candidate saved.
+
+    Job preferences (``must_have``, ``nice_to_have`` and ``prefer``) describe
+    what the person wants from a role. They must not be confused with evidence
+    of experience. The saved resume is the single source of truth for the
+    latter, which lets the scorer reject an explicitly-required technology the
+    candidate has not claimed without asking them to maintain the same list in
+    two places.
+    """
+    enriched = dict(profile or {})
+    skills = (resume or {}).get("skills")
+    if not isinstance(skills, dict):
+        enriched["candidate_skills"] = []
+        return enriched
+
+    seen = set()
+    candidate_skills = []
+    for group in ("languages", "frameworks", "tools", "other"):
+        values = skills.get(group, [])
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            name = str(value or "").strip()
+            key = name.casefold()
+            if name and key not in seen:
+                seen.add(key)
+                candidate_skills.append(name)
+    enriched["candidate_skills"] = candidate_skills
+    return enriched
 
 
 def _extract_json(raw: str) -> Dict[str, Any]:
@@ -254,7 +294,29 @@ def _build_prompt(job: Dict, profile: Dict) -> str:
 def _normalize_result(result: Dict[str, Any], provider: str) -> Dict[str, Any]:
     result["score"] = max(0, min(100, int(result.get("score", 0))))
     result["deal_breaker"] = bool(result.get("deal_breaker", False))
-    result.setdefault("reasons", [])
+    missing_required_skills = result.get("missing_required_skills", [])
+    if not isinstance(missing_required_skills, list):
+        missing_required_skills = []
+    seen_skills = set()
+    normalized_missing_skills = []
+    for value in missing_required_skills:
+        skill = str(value or "").strip()
+        if not skill or skill.casefold() in seen_skills:
+            continue
+        seen_skills.add(skill.casefold())
+        normalized_missing_skills.append(skill)
+        if len(normalized_missing_skills) == 12:
+            break
+    result["missing_required_skills"] = normalized_missing_skills
+    reasons = result.get("reasons", [])
+    result["reasons"] = reasons if isinstance(reasons, list) else []
+    if result["missing_required_skills"]:
+        result["deal_breaker"] = True
+        result["score"] = min(result["score"], 49)
+        result["recommendation"] = "SKIP"
+        missing_reason = "❌ Required technology not listed in your CV: " + ", ".join(result["missing_required_skills"])
+        if not any("required technology not listed" in str(reason).casefold() for reason in result["reasons"]):
+            result["reasons"] = [missing_reason, *result["reasons"]][:5]
     result.setdefault("summary", "")
     result.setdefault("recommendation", "MAYBE")
     # Fail closed: a malformed or older model response must never turn an

@@ -280,6 +280,7 @@ resource "aws_lambda_function" "scraper" {
       PROFILES_TABLE           = aws_dynamodb_table.profiles.name
       JOBS_TABLE               = aws_dynamodb_table.jobs.name
       TELEGRAM_CODES_TABLE     = aws_dynamodb_table.telegram_codes.name
+      RESUMES_TABLE            = aws_dynamodb_table.resumes.name
       COMPANY_SIZE_CACHE_TABLE = aws_dynamodb_table.company_size_cache.name
       MAX_SCORER_CALLS_PER_RUN = "150"
     }

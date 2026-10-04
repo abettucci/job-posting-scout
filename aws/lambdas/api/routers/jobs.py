@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import httpx
 from anthropic import Anthropic
 from defusedxml import ElementTree as SafeElementTree
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 
@@ -81,11 +81,17 @@ class BriefCompetitor(BaseModel):
     basis: str = Field(..., min_length=1, max_length=500)
 
 
-class JobAppliedUpdate(BaseModel):
+class JobReference(BaseModel):
+    # Job identifiers from some boards are URLs. Keeping them in the request
+    # body avoids API Gateway splitting an encoded '/' into extra path segments.
+    job_id: str = Field(..., min_length=1, max_length=1024)
+
+
+class JobAppliedUpdate(JobReference):
     applied: bool
 
 
-class JobDismissedUpdate(BaseModel):
+class JobDismissedUpdate(JobReference):
     dismissed: bool
 
 
@@ -250,39 +256,37 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
         )
         return {"items": items, "count": len(items)}
 
-    @router.patch("/{job_id}/applied")
+    @router.patch("/applied")
     def set_applied(
-        job_id: str = Path(..., min_length=1, max_length=128),
         body: JobAppliedUpdate = ...,
         user=Depends(get_current_user),
     ):
         # user_id comes from the authenticated session and is part of the DDB key,
         # so a guessed job_id cannot touch a different user's job (same guard as
         # create_interview_brief above).
-        ok = db.set_job_applied(user["user_id"], job_id, body.applied)
+        ok = db.set_job_applied(user["user_id"], body.job_id, body.applied)
         if not ok:
             raise HTTPException(404, "Job not found")
-        return {"job_id": job_id, "applied": body.applied}
+        return {"job_id": body.job_id, "applied": body.applied}
 
-    @router.patch("/{job_id}/dismissed")
+    @router.patch("/dismissed")
     def set_dismissed(
-        job_id: str = Path(..., min_length=1, max_length=128),
         body: JobDismissedUpdate = ...,
         user=Depends(get_current_user),
     ):
-        ok = db.set_job_dismissed(user["user_id"], job_id, body.dismissed)
+        ok = db.set_job_dismissed(user["user_id"], body.job_id, body.dismissed)
         if not ok:
             raise HTTPException(404, "Job not found")
-        return {"job_id": job_id, "dismissed": body.dismissed}
+        return {"job_id": body.job_id, "dismissed": body.dismissed}
 
-    @router.post("/{job_id}/interview-brief")
+    @router.post("/interview-brief")
     async def create_interview_brief(
-        job_id: str = Path(..., min_length=1, max_length=128),
+        body: JobReference,
         user=Depends(get_current_user),
     ):
         # user_id comes from the authenticated session and is part of the DDB key,
         # so a guessed job_id cannot read or update a different user's job.
-        job = db.get_user_job(user["user_id"], job_id)
+        job = db.get_user_job(user["user_id"], body.job_id)
         if not job:
             raise HTTPException(404, "Job not found")
         if _brief_is_fresh(job):
@@ -290,7 +294,7 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
 
         sources = await _google_news(str(job.get("company") or ""), str(job.get("title") or ""))
         brief = _generate_interview_brief(anthropic, job, sources)
-        if not db.save_user_job_interview_brief(user["user_id"], job_id, brief):
+        if not db.save_user_job_interview_brief(user["user_id"], body.job_id, brief):
             raise HTTPException(409, "The job is no longer available. Please refresh and try again.")
         _save_brief_to_history(db, user["user_id"], job, brief)
         return brief

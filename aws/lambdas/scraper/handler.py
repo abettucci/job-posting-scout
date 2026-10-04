@@ -37,7 +37,7 @@ for _p in [_SHARED_LAMBDA, _SHARED_LOCAL]:
 from config import get_config
 from db import DynamoDBClient
 from telegram import TelegramClient, format_job_notification
-from scorer import ScoringRouter, ScoringUnavailableError, score_job
+from scorer import ScoringRouter, ScoringUnavailableError, score_job, with_resume_skills
 from seniority import (
     SENIORITY_LEVELS,
     SENIORITY_TO_LINKEDIN_F_E,
@@ -208,6 +208,14 @@ def _enrich_job(job: Dict) -> Dict:
     }
 
 
+def _scoring_profile(db: DynamoDBClient, user_id: str) -> Dict:
+    """Build one consistent scoring input from preferences and the saved CV."""
+    profile = db.get_profile(user_id) or {}
+    if not profile:
+        return {}
+    return with_resume_skills(profile, db.get_resume(user_id))
+
+
 def _seniority_mismatch(job: Dict, profile: Dict) -> Dict | None:
     """Hard-filter check: if the candidate declared accepted seniority levels
     in their profile and the job's own extracted level is outside them, skip
@@ -339,25 +347,25 @@ def _region_mismatch(job: Dict, profile: Dict) -> Dict | None:
 
 def lambda_handler(event, context):
     mode = (event or {}).get("mode", "scrape")
-    if mode == "rescore":
+    if mode in ("rescore", "profile_refresh"):
         user_id = (event or {}).get("user_id")
         if not user_id:
-            logger.error("rescore mode requires a user_id")
-            return {"statusCode": 400, "body": "user_id required for rescore"}
-        asyncio.run(_rescore(user_id))
+            logger.error("profile scoring mode requires a user_id")
+            return {"statusCode": 400, "body": "user_id required for profile scoring"}
+        asyncio.run(_rescore(user_id, include_scored=mode == "profile_refresh"))
     else:
         asyncio.run(_main())
     return {"statusCode": 200, "body": "done"}
 
 
-async def _rescore(user_id: str):
-    """Re-score this user's already-saved jobs that never got a real score
-    (score == 0, saved via _save_unscored — e.g. because their profile was
-    still empty at scrape time). Does not re-fetch from any source: title,
-    company, location, url, description, and posted_date are already in
-    DynamoDB, so this only re-runs the Claude Haiku scoring pass and
-    overwrites those rows in place. Never re-notifies via Telegram — this is
-    a backfill of old jobs, not a "new job found" event."""
+async def _rescore(user_id: str, include_scored: bool = False):
+    """Re-score active saved jobs without re-fetching any source.
+
+    ``include_scored`` is an explicit user action after changing their CV: it
+    refreshes already-evaluated active cards (up to the normal scorer cap) so
+    newly saved skills can hide an old false-positive. This never re-notifies
+    Telegram, and excludes Applied/Dismissed cards from needless evaluation.
+    """
     cfg = get_config()
     db = DynamoDBClient(
         users_table=cfg.users_table,
@@ -365,11 +373,12 @@ async def _rescore(user_id: str):
         profiles_table=cfg.profiles_table,
         jobs_table=cfg.jobs_table,
         telegram_codes_table=cfg.telegram_codes_table,
+        resumes_table=cfg.resumes_table,
         region=cfg.region,
     )
     scorer = _scoring_router(cfg)
 
-    profile = db.get_profile(user_id)
+    profile = _scoring_profile(db, user_id)
     if not profile:
         logger.warning(f"rescore: user {user_id} has no profile — nothing to score against")
         return
@@ -377,12 +386,20 @@ async def _rescore(user_id: str):
     unscored: List[Dict] = []
     last_key = None
     while True:
-        items, last_key = db.get_user_jobs(user_id=user_id, min_score=0, limit=100, last_key=last_key)
-        unscored.extend(j for j in items if j.get("score", 0) == 0)
+        items, last_key = db.get_user_jobs(
+            user_id=user_id, min_score=0, limit=100, last_key=last_key, applied=False, dismissed=False,
+        )
+        unscored.extend(
+            j for j in items
+            if (include_scored or j.get("score", 0) == 0) and not j.get("deal_breaker", False)
+        )
         if not last_key:
             break
 
-    logger.info(f"rescore: {len(unscored)} unscored jobs found for user {user_id}")
+    logger.info(
+        "rescore: %s %s jobs found for user %s",
+        len(unscored), "active" if include_scored else "unscored", user_id,
+    )
 
     scored = 0
     for job in unscored:
@@ -416,6 +433,7 @@ async def _main():
         profiles_table=cfg.profiles_table,
         jobs_table=cfg.jobs_table,
         telegram_codes_table=cfg.telegram_codes_table,
+        resumes_table=cfg.resumes_table,
         company_size_cache_table=cfg.company_size_cache_table,
         region=cfg.region,
     )
@@ -576,7 +594,7 @@ async def _main():
             str(search.get("label") or "Unnamed search") for search in matching_searches
         ))
 
-        profile = db.get_profile(user_id) or {}
+        profile = _scoring_profile(db, user_id)
         if not profile:
             _save_unscored(db, user_id, job)
             return
@@ -660,6 +678,7 @@ def _save_scored_job(db: DynamoDBClient, user_id: str, job: dict, result: dict, 
         "score": result["score"],
         "summary": result.get("summary", ""),
         "reasons": result.get("reasons", []),
+        "missing_required_skills": result.get("missing_required_skills", []),
         "deal_breaker": result.get("deal_breaker", False),
         "recommendation": result.get("recommendation", "MAYBE"),
         "notified": notified,
@@ -801,7 +820,7 @@ async def _retry_pending_scoring(
     for user in users:
         if retried >= _MAX_PENDING_RETRIES_PER_RUN:
             break
-        profile = db.get_profile(user["user_id"]) or {}
+        profile = _scoring_profile(db, user["user_id"])
         if not profile:
             continue
         items: List[Dict] = []
