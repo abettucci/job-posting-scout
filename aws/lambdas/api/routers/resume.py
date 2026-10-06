@@ -147,7 +147,12 @@ class CareerAnswerRequest(BaseModel):
 
 class ApplicationAnswersRequest(BaseModel):
     """Context for the two common application questions generated together."""
-    job_description: Optional[str] = Field(default=None, max_length=6000)
+    # A pasted listing can be longer than the 6,000 characters ultimately
+    # sent to the model. Tailor accepts the full listing and truncates only
+    # when building its prompt, so this endpoint must not reject that same
+    # listing after a successful tailoring run. The model call below still
+    # bounds its context to 6,000 characters.
+    job_description: Optional[str] = Field(default=None, max_length=20_000)
     job_id: Optional[str] = Field(default=None, max_length=128)
     company: Optional[str] = Field(default=None, max_length=200)
     role: Optional[str] = Field(default=None, max_length=200)

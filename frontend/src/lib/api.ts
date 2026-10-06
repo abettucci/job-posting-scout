@@ -5,6 +5,33 @@ function token() {
   return localStorage.getItem("jwt");
 }
 
+function errorMessage(payload: unknown, fallback: string): string {
+  if (typeof payload === "string" && payload.trim()) return payload;
+  if (!payload || typeof payload !== "object") return fallback;
+
+  const response = payload as { detail?: unknown; message?: unknown };
+  if (typeof response.detail === "string" && response.detail.trim()) return response.detail;
+  if (typeof response.message === "string" && response.message.trim()) return response.message;
+
+  // FastAPI/Pydantic validation errors use an array of {loc, msg} objects.
+  // Formatting it here prevents a useful 4xx response from becoming the
+  // unhelpful "[object Object]" in every frontend error state.
+  if (Array.isArray(response.detail)) {
+    const messages = response.detail.flatMap((issue) => {
+      if (!issue || typeof issue !== "object") return [];
+      const value = issue as { loc?: unknown; msg?: unknown };
+      if (typeof value.msg !== "string" || !value.msg.trim()) return [];
+      const path = Array.isArray(value.loc)
+        ? value.loc.filter((part): part is string => typeof part === "string" && part !== "body").join(" → ")
+        : "";
+      return [path ? `${path}: ${value.msg}` : value.msg];
+    });
+    if (messages.length) return messages.join(". ");
+  }
+
+  return fallback;
+}
+
 async function req<T>(
   path: string,
   options: RequestInit = {}
@@ -18,8 +45,8 @@ async function req<T>(
 
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? "Request failed");
+    const err: unknown = await res.json().catch(() => null);
+    throw new Error(errorMessage(err, res.statusText || "Request failed"));
   }
   return res.json();
 }
@@ -33,8 +60,8 @@ async function reqBlob(path: string, options: RequestInit = {}): Promise<Blob> {
   if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? "Request failed");
+    const err: unknown = await res.json().catch(() => null);
+    throw new Error(errorMessage(err, res.statusText || "Request failed"));
   }
   return res.blob();
 }
@@ -124,7 +151,7 @@ export const api = {
       headers: jwt ? { Authorization: `Bearer ${jwt}` } : {},
       body: form,
     }).then(async (res) => {
-      if (!res.ok) { const e = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(e.detail); }
+      if (!res.ok) { const e: unknown = await res.json().catch(() => null); throw new Error(errorMessage(e, res.statusText || "Request failed")); }
       return res.json() as Promise<ResumeData>;
     });
   },
@@ -137,7 +164,7 @@ export const api = {
       headers: jwt ? { Authorization: `Bearer ${jwt}` } : {},
       body: form,
     }).then(async (res) => {
-      if (!res.ok) { const e = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(e.detail); }
+      if (!res.ok) { const e: unknown = await res.json().catch(() => null); throw new Error(errorMessage(e, res.statusText || "Request failed")); }
       return res.json() as Promise<ResumeData>;
     });
   },
