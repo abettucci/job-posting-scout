@@ -99,6 +99,7 @@ export const api = {
 
   // Scraper
   runScraper: () => req<{ triggered: boolean }>("/scraper/run", { method: "POST" }),
+  getScrapeRuns: (limit = 8) => req<ScrapeRun[]>(`/scrape-runs?limit=${limit}`),
   rescoreJobs: () => req<{ triggered: boolean }>("/scraper/run?mode=rescore", { method: "POST" }),
   refreshJobsForCv: () => req<{ triggered: boolean }>("/scraper/run?mode=profile_refresh", { method: "POST" }),
 
@@ -355,6 +356,31 @@ export interface Job {
   applied_at?: string | null;
   dismissed?: boolean;
   dismissed_at?: string | null;
+}
+
+export type ScrapeSourceStatus = "success" | "blocked" | "paused" | "failed" | "pending";
+
+export interface ScrapeRunSource {
+  source: string;
+  status: ScrapeSourceStatus;
+  fetched: number;
+  added: number;
+  seen: number;
+  filtered: number;
+  scored: number;
+  pending: number;
+  notified: number;
+  message?: string;
+}
+
+export interface ScrapeRun {
+  run_id: string;
+  started_at: string;
+  finished_at: string;
+  status: "success" | "degraded" | "failed";
+  new_jobs: number;
+  notified: number;
+  sources: ScrapeRunSource[];
 }
 
 export interface InterviewBriefSource {

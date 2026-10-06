@@ -26,10 +26,37 @@ def keyword_match(text: str, keywords: str) -> bool:
 def location_match(job_location: str, location_filter: str) -> bool:
     if not location_filter.strip():
         return True
-    # A saved search may name alternatives, e.g. "Argentina, Remote,
-    # Worldwide". Treat commas as OR, never as one literal phrase.
+    # A saved search may name alternatives, e.g. "Argentina, Worldwide".
+    # Treat commas as OR, never as one literal phrase.
     alternatives = [item.strip().lower() for item in location_filter.split(",") if item.strip()]
-    return any(item in job_location.lower() for item in alternatives)
+    location = " ".join((job_location or "").casefold().split())
+
+    # Provider APIs frequently describe globally-eligible remote roles as just
+    # "Remote".  The old literal check for "Worldwide" silently excluded all
+    # of those before the richer posting-level region guard could inspect them.
+    # Deliberately accept only an *unqualified* remote label here: strings such
+    # as "Remote (US)", "Remote Poland" or "Remote — EMEA" remain excluded.
+    def is_unrestricted_remote(value: str) -> bool:
+        compact = value.strip(" .,:;|/-")
+        explicitly_global = ("worldwide", "global", "anywhere", "work from anywhere")
+        if any(marker in compact for marker in explicitly_global):
+            return True
+        return compact in {
+            "remote", "remote job", "remote role", "remote position",
+            "fully remote", "100% remote", "100 percent remote",
+        }
+
+    worldwide_preferences = {
+        "worldwide", "remote", "remote worldwide", "worldwide remote",
+        "global", "global remote", "anywhere", "work from anywhere",
+    }
+    for alternative in alternatives:
+        if alternative in worldwide_preferences:
+            if is_unrestricted_remote(location):
+                return True
+        elif alternative and alternative in location:
+            return True
+    return False
 
 
 def normalize_posted_date(value: Union[str, int, float, None], unit: str = "s") -> Optional[str]:

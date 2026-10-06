@@ -23,7 +23,7 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Tuple
 from urllib.parse import urlencode
@@ -47,13 +47,84 @@ from seniority import (
     extract_requirements,
 )
 
-from linkedin import run_scraper
+from linkedin import LinkedInAuthenticationError, run_scraper
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 _MAX_SCORER_CALLS = int(os.environ.get("MAX_SCORER_CALLS_PER_RUN", "150"))
 _MAX_PENDING_RETRIES_PER_RUN = int(os.environ.get("MAX_PENDING_RETRIES_PER_RUN", "50"))
+_LINKEDIN_AUTH_COOLDOWN_HOURS = int(os.environ.get("LINKEDIN_AUTH_COOLDOWN_HOURS", "12"))
+
+_SOURCE_LABELS = {
+    "linkedin": "LinkedIn",
+    "remoteok": "Remote OK",
+    "workingnomads": "Working Nomads",
+    "remotive": "Remotive",
+    "arbeitnow": "Arbeitnow",
+    "compujobs": "CompuJobs",
+    "onlinejobs": "OnlineJobs.ph",
+    "yc": "Y Combinator",
+    "freehire": "FreeHire",
+    "greenhouse": "Greenhouse",
+    "lever": "Lever",
+    "ashby": "Ashby",
+    "workable": "Workable",
+    "smartrecruiters": "SmartRecruiters",
+    "workday": "Workday",
+    "deel": "Deel",
+}
+
+
+def _source_label(source: str) -> str:
+    return _SOURCE_LABELS.get(source, source.replace("_", " ").title())
+
+
+def _parse_future_timestamp(value: object) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _linkedin_cooldown_until(users: List[Dict]) -> datetime | None:
+    now = datetime.now(timezone.utc)
+    future = [
+        timestamp
+        for timestamp in (_parse_future_timestamp(user.get("linkedin_auth_blocked_until")) for user in users)
+        if timestamp and timestamp > now
+    ]
+    return max(future) if future else None
+
+
+def _format_scrape_summary(report: Dict) -> str:
+    """One short, user-facing status message for every completed scrape."""
+    status = report.get("status", "success")
+    headline = "✅ *Job Scout — búsqueda terminada*" if status == "success" else "⚠️ *Job Scout — búsqueda terminada con avisos*"
+    lines = [headline, ""]
+    for source in report.get("sources", []):
+        source_status = source.get("status", "success")
+        source_name = _source_label(str(source.get("source", "source")))
+        if source_status == "success":
+            lines.append(
+                f"• {source_name}: {source.get('fetched', 0)} encontradas · "
+                f"{source.get('added', 0)} nuevas · {source.get('seen', 0)} ya vistas"
+            )
+        else:
+            marker = "⛔" if source_status == "blocked" else "⏸" if source_status == "paused" else "⚠️"
+            message = str(source.get("message") or "No se pudo consultar esta fuente.")
+            lines.append(f"• {marker} {source_name}: {message}")
+    lines.append("")
+    lines.append(
+        f"Nuevas guardadas: *{report.get('new_jobs', 0)}* · "
+        f"Notificaciones de match: *{report.get('notified', 0)}*"
+    )
+    return "\n".join(lines)
 
 
 def _is_senior_title(title: str) -> bool:
@@ -435,6 +506,7 @@ async def _main():
         telegram_codes_table=cfg.telegram_codes_table,
         resumes_table=cfg.resumes_table,
         company_size_cache_table=cfg.company_size_cache_table,
+        scrape_runs_table=cfg.scrape_runs_table,
         region=cfg.region,
     )
     tg = TelegramClient(cfg.telegram_bot_token)
@@ -445,6 +517,48 @@ async def _main():
         logger.info("No linked users — nothing to do")
         return
     logger.info(f"Processing {len(users)} users")
+
+    started_at = datetime.now(timezone.utc)
+    # Ephemeral working state. `fetched_ids` stays in memory only; the
+    # persisted report contains bounded counters and no job descriptions.
+    report_state: Dict[str, Dict] = {
+        user["user_id"]: {"user": user, "sources": {}}
+        for user in users
+    }
+
+    def ensure_source(user: Dict, source: str) -> Dict:
+        sources = report_state[user["user_id"]]["sources"]
+        if source not in sources:
+            sources[source] = {
+                "source": source,
+                "status": "pending",
+                "fetched_ids": set(),
+                "added": 0,
+                "seen": 0,
+                "filtered": 0,
+                "scored": 0,
+                "pending": 0,
+                "notified": 0,
+                "message": "",
+            }
+        return sources[source]
+
+    def mark_fetch(source: str, jobs: List[Dict], subscriptions: List[Tuple[Dict, Dict]]):
+        for user, _search in subscriptions:
+            stat = ensure_source(user, source)
+            stat["status"] = "success"
+            stat["message"] = ""
+            stat["fetched_ids"].update(str(job.get("job_id")) for job in jobs if job.get("job_id"))
+
+    def mark_source_problem(source: str, subscriptions: List[Tuple[Dict, Dict]], status: str, message: str):
+        for user, _search in subscriptions:
+            stat = ensure_source(user, source)
+            stat["status"] = status
+            stat["message"] = message
+
+    def record(user: Dict, source: str, field: str):
+        stat = ensure_source(user, source)
+        stat[field] = int(stat.get(field, 0)) + 1
 
     # Retry only jobs that were explicitly deferred after all configured
     # providers failed. They were saved but never treated as a SKIP, so a quota
@@ -471,10 +585,12 @@ async def _main():
         for s in searches:
             source = s.get("source") or "linkedin"
             if source == "linkedin":
+                ensure_source(user, "linkedin")
                 url = s.get("url", "")
                 if url:
                     linkedin_url_to_users.setdefault(url, []).append((user, s))
             elif source in _ATS_SOURCES:
+                ensure_source(user, source)
                 slug = (s.get("url", "") if source in {"workday", "deel"} else s.get("ats_slug", "")).strip()
                 if not slug:
                     logger.warning(f"ATS search {s.get('search_id')} has no board reference — skipping")
@@ -484,6 +600,7 @@ async def _main():
                     ats_key_to_info[key] = {"label": s.get("label", slug), "subscriptions": []}
                 ats_key_to_info[key]["subscriptions"].append((user, s))
             elif source in _AGGREGATOR_SOURCES:
+                ensure_source(user, source)
                 keywords = s.get("keywords", "").strip()
                 if not keywords:
                     logger.warning(f"Aggregator search {s.get('search_id')} has no keywords — skipping")
@@ -499,6 +616,9 @@ async def _main():
                     continue
                 seniorities = s.get("seniorities") or ([] if not s.get("seniority") else [s["seniority"]])
                 location_filter = s.get("location_filter", "")
+                ensure_source(user, "linkedin")
+                for agg_source in _AGGREGATOR_SOURCES:
+                    ensure_source(user, agg_source)
 
                 # 1) LinkedIn — auto-built URL, folded into the existing LinkedIn flow
                 for location in _location_alternatives(location_filter):
@@ -517,19 +637,52 @@ async def _main():
 
     linkedin_results: Dict[str, List[Dict]] = {}  # url → jobs
     if linkedin_url_to_users:
-        try:
-            linkedin_results = await run_scraper(
-                search_urls=list(linkedin_url_to_users.keys()),
-                email=cfg.linkedin_email,
-                password=cfg.linkedin_password,
-                region=cfg.region,
-                cache_get=db.get_company_size_cache,
-                cache_put=db.save_company_size_cache,
-            )
-            logger.info(f"LinkedIn scraper returned {sum(len(v) for v in linkedin_results.values())} jobs "
-                        f"across {len(linkedin_results)} searches")
-        except Exception as e:
-            logger.error(f"LinkedIn scraper failed: {e}")
+        linkedin_subscriptions = [
+            subscription
+            for subscriptions in linkedin_url_to_users.values()
+            for subscription in subscriptions
+        ]
+        cooldown_until = _linkedin_cooldown_until(users)
+        if cooldown_until:
+            message = f"Autenticación no disponible; reintento automático después de {cooldown_until.strftime('%H:%M UTC')}."
+            logger.info("LinkedIn source paused until %s", cooldown_until.isoformat())
+            mark_source_problem("linkedin", linkedin_subscriptions, "paused", message)
+        else:
+            try:
+                linkedin_results = await run_scraper(
+                    search_urls=list(linkedin_url_to_users.keys()),
+                    email=cfg.linkedin_email,
+                    password=cfg.linkedin_password,
+                    region=cfg.region,
+                    cache_get=db.get_company_size_cache,
+                    cache_put=db.save_company_size_cache,
+                )
+                for url, jobs in linkedin_results.items():
+                    mark_fetch("linkedin", jobs, linkedin_url_to_users.get(url, []))
+                for user in users:
+                    if user.get("linkedin_auth_incident_open") or user.get("linkedin_auth_blocked_until"):
+                        db.update_user(user["user_id"], {
+                            "linkedin_auth_incident_open": False,
+                            "linkedin_auth_blocked_until": None,
+                        })
+                logger.info(f"LinkedIn scraper returned {sum(len(v) for v in linkedin_results.values())} jobs "
+                            f"across {len(linkedin_results)} searches")
+            except LinkedInAuthenticationError as exc:
+                cooldown_until = datetime.now(timezone.utc) + timedelta(hours=_LINKEDIN_AUTH_COOLDOWN_HOURS)
+                message = (
+                    "No se pudo autenticar la sesión del scraper. "
+                    f"Reintento automático después de {cooldown_until.strftime('%H:%M UTC')}."
+                )
+                logger.warning("LinkedIn authentication unavailable; pausing source until %s: %s", cooldown_until.isoformat(), exc)
+                mark_source_problem("linkedin", linkedin_subscriptions, "blocked", message)
+                for user in users:
+                    db.update_user(user["user_id"], {
+                        "linkedin_auth_incident_open": True,
+                        "linkedin_auth_blocked_until": cooldown_until.isoformat(),
+                    })
+            except Exception as exc:
+                logger.error(f"LinkedIn scraper failed: {exc}")
+                mark_source_problem("linkedin", linkedin_subscriptions, "failed", "Error temporal al consultar la fuente.")
 
     # ── ATS fetching (concurrent, zero-auth HTTP) ─────────────────────────────
 
@@ -540,10 +693,12 @@ async def _main():
         try:
             jobs = await _fetch_ats(source, slug, info["label"], keywords, location_filter)
             ats_results[key] = (jobs, info["subscriptions"])
+            mark_fetch(source, jobs, info["subscriptions"])
             logger.info(f"ATS {source}/{slug}: {len(jobs)} jobs")
         except Exception as e:
             logger.error(f"ATS {source}/{slug} failed: {e}")
             ats_results[key] = ([], info["subscriptions"])
+            mark_source_problem(source, info["subscriptions"], "failed", "Error temporal al consultar la fuente.")
 
     if ats_key_to_info:
         await asyncio.gather(*[_fetch_and_store(k, v) for k, v in ats_key_to_info.items()])
@@ -557,10 +712,12 @@ async def _main():
         try:
             jobs = await _fetch_aggregator(source, keywords, location_filter)
             aggregator_results[key] = (jobs, info["subscriptions"])
+            mark_fetch(source, jobs, info["subscriptions"])
             logger.info(f"Aggregator {source} ({keywords!r}): {len(jobs)} jobs")
         except Exception as e:
             logger.error(f"Aggregator {source} ({keywords!r}) failed: {e}")
             aggregator_results[key] = ([], info["subscriptions"])
+            mark_source_problem(source, info["subscriptions"], "failed", "Error temporal al consultar la fuente.")
 
     if aggregator_key_to_info:
         await asyncio.gather(*[_fetch_and_store_aggregator(k, v) for k, v in aggregator_key_to_info.items()])
@@ -570,11 +727,14 @@ async def _main():
     scorer_calls = 0
     total_notified = 0
 
-    def process_job_for_user(user: Dict, job: Dict, searches: List[Dict]):
+    def process_job_for_user(user: Dict, job: Dict, searches: List[Dict], source: str):
         nonlocal scorer_calls, total_notified
         user_id = user["user_id"]
         job_id = job.get("job_id")
-        if not job_id or db.is_job_seen(user_id, job_id):
+        if not job_id:
+            return
+        if db.is_job_seen(user_id, job_id):
+            record(user, source, "seen")
             return
 
         job = _enrich_job(job)
@@ -589,6 +749,8 @@ async def _main():
                 "score": 0, "deal_breaker": True, "reasons": ["❌ Search filter mismatch"],
                 "summary": "Filtered automatically by this search.", "recommendation": "SKIP",
             }), notified=False)
+            record(user, source, "added")
+            record(user, source, "filtered")
             return
         job["search_labels"] = list(dict.fromkeys(
             str(search.get("label") or "Unnamed search") for search in matching_searches
@@ -597,16 +759,20 @@ async def _main():
         profile = _scoring_profile(db, user_id)
         if not profile:
             _save_unscored(db, user_id, job)
+            record(user, source, "added")
             return
 
         mismatch = _seniority_mismatch(job, profile) or _experience_mismatch(job, profile) or _region_mismatch(job, profile)
         if mismatch:
             _save_scored_job(db, user_id, job, mismatch, notified=False)
+            record(user, source, "added")
+            record(user, source, "filtered")
             return
 
         if scorer_calls >= _MAX_SCORER_CALLS:
             logger.warning(f"Claude cap reached. Saving '{job.get('title')}' unscored.")
             _save_unscored(db, user_id, job)
+            record(user, source, "added")
             return
 
         try:
@@ -614,6 +780,8 @@ async def _main():
         except ScoringUnavailableError as exc:
             _save_pending_scoring(db, user_id, job, str(exc))
             _notify_scoring_outage(db, tg, user)
+            record(user, source, "added")
+            record(user, source, "pending")
             return
         _notify_scoring_recovery(db, tg, user)
         scorer_calls += 1
@@ -623,12 +791,15 @@ async def _main():
         if should_notify:
             chat_id = user.get("telegram_chat_id")
             if chat_id:
-                tg.send_message(int(chat_id), format_job_notification(job, result))
-                total_notified += 1
+                if tg.send_message(int(chat_id), format_job_notification(job, result)):
+                    total_notified += 1
+                    record(user, source, "notified")
 
         _save_scored_job(db, user_id, job, result, notified=should_notify)
+        record(user, source, "added")
+        record(user, source, "scored")
 
-    def process_for_subscriptions(job: Dict, subscriptions: List[Tuple[Dict, Dict]]):
+    def process_for_subscriptions(job: Dict, subscriptions: List[Tuple[Dict, Dict]], source: str):
         by_user: Dict[str, Tuple[Dict, List[Dict]]] = {}
         for user, search in subscriptions:
             user_id = user["user_id"]
@@ -636,23 +807,68 @@ async def _main():
                 by_user[user_id] = (user, [])
             by_user[user_id][1].append(search)
         for user, searches in by_user.values():
-            process_job_for_user(user, job, searches)
+            process_job_for_user(user, job, searches, source)
 
     # LinkedIn jobs → only the users who subscribed to that specific search URL
     for url, jobs in linkedin_results.items():
         subscriptions = linkedin_url_to_users.get(url, [])
         for job in jobs:
-            process_for_subscriptions(job, subscriptions)
+            process_for_subscriptions(job, subscriptions, "linkedin")
 
     # ATS jobs → only the users who subscribed to that specific search
     for key, (jobs, subscriptions) in ats_results.items():
         for job in jobs:
-            process_for_subscriptions(job, subscriptions)
+            process_for_subscriptions(job, subscriptions, key[0])
 
     # Aggregator jobs → only the users who subscribed to that specific search
     for key, (jobs, subscriptions) in aggregator_results.items():
         for job in jobs:
-            process_for_subscriptions(job, subscriptions)
+            process_for_subscriptions(job, subscriptions, key[0])
+
+    finished_at = datetime.now(timezone.utc)
+    report_ttl = int((finished_at + timedelta(days=90)).timestamp())
+    for user_id, state in report_state.items():
+        source_states = list(state["sources"].values())
+        if not source_states:
+            continue
+        source_states.sort(key=lambda item: (item["source"] != "linkedin", item["source"]))
+        sources = [
+            {
+                "source": source["source"],
+                "status": source["status"],
+                "fetched": len(source["fetched_ids"]),
+                "added": source["added"],
+                "seen": source["seen"],
+                "filtered": source["filtered"],
+                "scored": source["scored"],
+                "pending": source["pending"],
+                "notified": source["notified"],
+                "message": source["message"],
+            }
+            for source in source_states
+        ]
+        statuses = [source["status"] for source in sources]
+        if all(status in {"blocked", "paused", "failed"} for status in statuses):
+            report_status = "failed"
+        elif any(status != "success" for status in statuses):
+            report_status = "degraded"
+        else:
+            report_status = "success"
+        report = {
+            "user_id": user_id,
+            "run_id": finished_at.isoformat(),
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "status": report_status,
+            "sources": sources,
+            "new_jobs": sum(source["added"] for source in sources),
+            "notified": sum(source["notified"] for source in sources),
+            "ttl": report_ttl,
+        }
+        db.save_scrape_run(report)
+        chat_id = state["user"].get("telegram_chat_id")
+        if chat_id:
+            tg.send_message(int(chat_id), _format_scrape_summary(report))
 
     logger.info(f"Done. scorer_calls={scorer_calls}/{_MAX_SCORER_CALLS}, notified={total_notified}.")
 

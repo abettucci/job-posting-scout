@@ -34,6 +34,15 @@ _CHALLENGE_INDICATORS = (
 )
 
 
+class LinkedInAuthenticationError(RuntimeError):
+    """The shared LinkedIn session cannot be used from this runtime.
+
+    This is intentionally distinct from a listing/search failure: the caller
+    can open a bounded cooldown and report a useful source status instead of
+    spending the full Lambda timeout retrying the same login page.
+    """
+
+
 async def _random_delay(min_ms: int = 1500, max_ms: int = 4000):
     await asyncio.sleep(random.uniform(min_ms, max_ms) / 1000)
 
@@ -215,47 +224,42 @@ async def login(page: Page, email: str, password: str) -> bool:
                 await page.wait_for_load_state("networkidle", timeout=10_000)
             except Exception:
                 pass
-            # Broad check: did *any* form mount at all? Decouples "no form ever
-            # rendered" (likely a hard block) from "a form rendered but none of
-            # our specific selectors matched it" (likely a stale selector list).
-            try:
-                await page.wait_for_selector("form", timeout=10_000)
-            except Exception:
-                logger.warning(f"No <form> ever appeared on {page.url} — likely a hard block, not a selector mismatch")
             logger.info(f"Login page loaded: {page.url}")
 
-            # Find whichever username selector is present
+            # Wait once for the complete selector family instead of waiting up
+            # to 15 seconds for each historic selector. A blocked/half-rendered
+            # login page otherwise burns several minutes of a Lambda run.
             username_sel = None
-            for sel in _username_selectors:
-                try:
-                    await page.wait_for_selector(sel, timeout=15_000)
-                    username_sel = sel
-                    break
-                except Exception:
-                    continue
+            try:
+                selector_group = ", ".join(_username_selectors)
+                await page.wait_for_selector(selector_group, state="visible", timeout=12_000)
+                for sel in _username_selectors:
+                    if await page.locator(sel).first.is_visible():
+                        username_sel = sel
+                        break
+            except Exception:
+                pass
 
             if not username_sel:
-                # Log page title and content so we know what LinkedIn is showing.
+                # Keep enough diagnostic context for CloudWatch without dumping
+                # a full third-party sign-in page into logs.
                 try:
                     title = await page.title()
                     html = await page.content()
                     lowered = html.lower()
-                    if any(ind in lowered for ind in _CHALLENGE_INDICATORS):
-                        logger.warning(
-                            f"LinkedIn served a bot-detection/verification challenge on {page.url} "
-                            f"(title={title!r}) instead of the login form — no selector will match this. "
-                            "Likely cause: automated/headless session or IP flagged by LinkedIn, not a "
-                            "markup change. Needs a fresh manual login + cookie export, or a residential "
-                            "proxy/non-headless session."
-                        )
-                    else:
-                        logger.warning(
-                            f"No username selector found on {page.url} — "
-                            f"title={title!r} html_start={html[:20000]!r}"
-                        )
+                    logger.warning(
+                        "LinkedIn login unavailable at %s (title=%r, challenge=%s, form=%s, inputs=%s)",
+                        page.url,
+                        title,
+                        any(ind in lowered for ind in _CHALLENGE_INDICATORS),
+                        "<form" in lowered,
+                        lowered.count("<input"),
+                    )
                 except Exception:
-                    logger.warning(f"No username selector found on {page.url} — trying next URL")
-                continue
+                    logger.warning(f"LinkedIn login unavailable at {page.url}")
+                # Both paths are served by the same auth application today;
+                # trying the legacy URL repeats the same blocked state.
+                return False
 
             await page.fill(username_sel, email)
             await _random_delay(500, 1200)
@@ -278,7 +282,7 @@ async def login(page: Page, email: str, password: str) -> bool:
             return True
         except Exception as e:
             logger.error(f"Login attempt via {login_url} failed: {e}")
-            continue
+            return False
 
     return False
 
@@ -427,9 +431,9 @@ async def run_scraper(
             logger.info(f"Session not valid (url={page.url}) — re-authenticating")
             ok = await login(page, email, password)
             if not ok:
-                logger.error("Authentication failed — aborting scraper")
+                logger.error("LinkedIn authentication unavailable — aborting LinkedIn source")
                 await browser.close()
-                return {}
+                raise LinkedInAuthenticationError("LinkedIn sign-in is unavailable from the scraper runtime")
             # Save fresh cookies
             new_cookies = await context.cookies()
             _save_cookies(new_cookies, secret_name, region)

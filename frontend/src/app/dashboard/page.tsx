@@ -3,10 +3,37 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { api, Job, Search } from "@/lib/api";
+import { api, Job, ScrapeRun, ScrapeRunSource, Search } from "@/lib/api";
 import Nav from "@/components/Nav";
 import JobCard from "@/components/JobCard";
 import SearchForm from "@/components/SearchForm";
+
+const SOURCE_NAMES: Record<string, string> = {
+  linkedin: "LinkedIn", remoteok: "Remote OK", workingnomads: "Working Nomads",
+  remotive: "Remotive", arbeitnow: "Arbeitnow", compujobs: "CompuJobs",
+  onlinejobs: "OnlineJobs.ph", yc: "Y Combinator", freehire: "FreeHire",
+  greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workable: "Workable",
+  smartrecruiters: "SmartRecruiters", workday: "Workday", deel: "Deel",
+};
+
+function sourceName(source: string) {
+  return SOURCE_NAMES[source] ?? source.replaceAll("_", " ");
+}
+
+function sourceTone(status: ScrapeRunSource["status"]) {
+  if (status === "success") return { dot: "bg-emerald-500", label: "OK" };
+  if (status === "blocked") return { dot: "bg-rose-500", label: "Blocked" };
+  if (status === "paused") return { dot: "bg-amber-500", label: "Paused" };
+  if (status === "failed") return { dot: "bg-rose-500", label: "Failed" };
+  return { dot: "bg-slate-400", label: "Pending" };
+}
+
+function runTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Unknown time" : new Intl.DateTimeFormat("es-AR", {
+    dateStyle: "medium", timeStyle: "short",
+  }).format(date);
+}
 
 export default function DashboardPage() {
   const { user, loading } = useAuth();
@@ -14,6 +41,7 @@ export default function DashboardPage() {
 
   const [searches, setSearches] = useState<Search[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [scrapeRuns, setScrapeRuns] = useState<ScrapeRun[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [runningScaper, setRunningScaper] = useState(false);
@@ -29,10 +57,19 @@ export default function DashboardPage() {
     Promise.all([
       api.getSearches(),
       api.getJobs(user.score_threshold, 10, false, false),
-    ]).then(([s, j]) => {
+      api.getScrapeRuns(),
+    ]).then(([s, j, runs]) => {
       setSearches(s);
       setJobs(j.items.filter((job) => !job.deal_breaker && !hiddenJobIds.current.has(job.job_id)));
+      setScrapeRuns(runs);
     }).finally(() => setFetching(false));
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const refreshReports = () => api.getScrapeRuns().then(setScrapeRuns).catch(() => undefined);
+    const interval = window.setInterval(refreshReports, 30_000);
+    return () => window.clearInterval(interval);
   }, [user]);
 
   const toggleSearch = async (s: Search) => {
@@ -52,7 +89,7 @@ export default function DashboardPage() {
     setScraperMsg(null);
     try {
       await api.runScraper();
-      setScraperMsg("Scraper triggered. Results will arrive via Telegram in ~5 min.");
+      setScraperMsg("Scan started. The full source report will arrive in Telegram and appear below when it finishes.");
     } catch (e: unknown) {
       setScraperMsg(`Error: ${e instanceof Error ? e.message : "unknown error"}`);
     } finally {
@@ -101,6 +138,65 @@ export default function DashboardPage() {
             </p>
           </div>
         )}
+
+        {/* Source health and run history */}
+        <section className="card overflow-hidden p-0">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b px-5 py-4" style={{ borderColor: "var(--line)", background: "color-mix(in srgb, var(--surface-muted) 56%, var(--surface))" }}>
+            <div>
+              <p className="eyebrow">Source reports</p>
+              <h2 className="mt-1 text-xl font-black tracking-[-0.04em]">Every scan, without CloudWatch.</h2>
+            </div>
+            <p className="max-w-xs text-xs leading-5" style={{ color: "var(--ink-muted)" }}>A compact result is also sent to your linked Telegram chat after each run.</p>
+          </div>
+          {scrapeRuns.length === 0 ? (
+            <div className="px-5 py-7 text-sm" style={{ color: "var(--ink-muted)" }}>
+              No completed scans yet. The first report will appear here after the active sources finish.
+            </div>
+          ) : (
+            <div className="divide-y" style={{ borderColor: "var(--line)" }}>
+              {scrapeRuns.map((run, index) => {
+                const hasIssue = run.status !== "success";
+                return (
+                  <details key={run.run_id} open={index === 0} className="group">
+                    <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-5 py-4 marker:hidden hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2 w-2 rounded-full ${hasIssue ? "bg-amber-500" : "bg-emerald-500"}`} />
+                          <p className="text-sm font-bold" style={{ color: "var(--foreground)" }}>{runTime(run.finished_at)}</p>
+                          <span className="rounded-full border px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.11em]" style={{ borderColor: "var(--line)", color: hasIssue ? "var(--accent-strong)" : "var(--ink-muted)" }}>
+                            {run.status === "success" ? "Complete" : run.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs" style={{ color: "var(--ink-muted)" }}>
+                          {run.new_jobs} new saved · {run.notified} match notifications
+                        </p>
+                      </div>
+                      <span className="text-xl leading-none transition-transform group-open:rotate-45" style={{ color: "var(--accent)" }}>+</span>
+                    </summary>
+                    <div className="grid gap-2 border-t px-5 py-4 sm:grid-cols-2" style={{ borderColor: "var(--line)", background: "color-mix(in srgb, var(--surface-muted) 34%, transparent)" }}>
+                      {run.sources.map((source) => {
+                        const tone = sourceTone(source.status);
+                        return (
+                          <article key={source.source} className="rounded-xl border px-3 py-2.5" style={{ borderColor: "var(--line)", background: "var(--surface)" }}>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="flex min-w-0 items-center gap-2 text-xs font-bold"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} /> <span className="truncate">{sourceName(source.source)}</span></p>
+                              <span className="text-[10px] font-extrabold uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>{tone.label}</span>
+                            </div>
+                            {source.status === "success" ? (
+                              <p className="mt-1.5 text-xs" style={{ color: "var(--ink-muted)" }}>{source.fetched} found · {source.added} new · {source.seen} already seen</p>
+                            ) : (
+                              <p className="mt-1.5 text-xs leading-5" style={{ color: "var(--ink-muted)" }}>{source.message || "No result was available for this source."}</p>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
         {/* Searches */}
         <section>

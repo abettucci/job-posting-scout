@@ -41,6 +41,7 @@ class DynamoDBClient:
         resumes_table: str = "",
         cv_history_table: str = "",
         company_size_cache_table: str = "",
+        scrape_runs_table: str = "",
         region: str = "us-east-1",
     ):
         db = boto3.resource("dynamodb", region_name=region)
@@ -53,6 +54,7 @@ class DynamoDBClient:
         self.resumes = db.Table(resumes_table) if resumes_table else None
         self.cv_history = db.Table(cv_history_table) if cv_history_table else None
         self.company_size_cache = db.Table(company_size_cache_table) if company_size_cache_table else None
+        self.scrape_runs = db.Table(scrape_runs_table) if scrape_runs_table else None
 
     # ── Users ──────────────────────────────────────────────────────────────
 
@@ -208,6 +210,34 @@ class DynamoDBClient:
         except Exception as e:
             logger.error(f"save_job error: {e}")
             return False
+
+    # ── Scrape reports ────────────────────────────────────────────────────
+
+    def save_scrape_run(self, run: Dict) -> bool:
+        """Persist a compact per-user source report. Failing to write an
+        observability record must never make a scraper run fail."""
+        if not self.scrape_runs:
+            return False
+        try:
+            self.scrape_runs.put_item(Item=_to_decimal(run))
+            return True
+        except Exception as e:
+            logger.error(f"save_scrape_run error: {e}")
+            return False
+
+    def get_scrape_runs(self, user_id: str, limit: int = 10) -> List[Dict]:
+        if not self.scrape_runs:
+            return []
+        try:
+            response = self.scrape_runs.query(
+                KeyConditionExpression=Key("user_id").eq(user_id),
+                ScanIndexForward=False,
+                Limit=max(1, min(int(limit), 30)),
+            )
+            return [_from_decimal(item) for item in response.get("Items", [])]
+        except Exception as e:
+            logger.error(f"get_scrape_runs error: {e}")
+            return []
 
     def get_user_job(self, user_id: str, job_id: str) -> Optional[Dict]:
         """Look up a job only within the authenticated user's partition."""
