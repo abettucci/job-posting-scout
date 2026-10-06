@@ -89,6 +89,20 @@ resource "aws_dynamodb_table" "jobs" {
     name = "job_id"
     type = "S"
   }
+  # The primary range key is a stable, source-prefixed job id, which is useful
+  # for de-duplication but has no chronological meaning. The UI queue needs a
+  # user-scoped, newest-first query instead of fetching an arbitrary slice of
+  # job ids and sorting it after the fact.
+  attribute {
+    name = "timestamp"
+    type = "S"
+  }
+  global_secondary_index {
+    name            = "user-timestamp-index"
+    hash_key        = "user_id"
+    range_key       = "timestamp"
+    projection_type = "ALL"
+  }
   ttl {
     attribute_name = "ttl"
     enabled        = true

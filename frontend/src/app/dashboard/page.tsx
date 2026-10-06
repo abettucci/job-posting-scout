@@ -156,6 +156,8 @@ export default function DashboardPage() {
             <div className="divide-y" style={{ borderColor: "var(--line)" }}>
               {scrapeRuns.map((run, index) => {
                 const hasIssue = run.status !== "success";
+                const autoFiltered = run.sources.reduce((total, source) => total + source.filtered, 0);
+                const eligible = Math.max(0, run.new_jobs - autoFiltered);
                 return (
                   <details key={run.run_id} open={index === 0} className="group">
                     <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-5 py-4 marker:hidden hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
@@ -168,7 +170,7 @@ export default function DashboardPage() {
                           </span>
                         </div>
                         <p className="mt-1 text-xs" style={{ color: "var(--ink-muted)" }}>
-                          {run.new_jobs} new saved · {run.notified} match notifications
+                          {run.new_jobs} new saved · {eligible} eligible · {autoFiltered} auto-filtered · {run.notified} match notifications
                         </p>
                       </div>
                       <span className="text-xl leading-none transition-transform group-open:rotate-45" style={{ color: "var(--accent)" }}>+</span>
@@ -183,7 +185,7 @@ export default function DashboardPage() {
                               <span className="text-[10px] font-extrabold uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>{tone.label}</span>
                             </div>
                             {source.status === "success" ? (
-                              <p className="mt-1.5 text-xs" style={{ color: "var(--ink-muted)" }}>{source.fetched} found · {source.added} new · {source.seen} already seen</p>
+                              <p className="mt-1.5 text-xs" style={{ color: "var(--ink-muted)" }}>{source.fetched} found · {source.added} new · {source.filtered} auto-filtered · {source.seen} already seen</p>
                             ) : (
                               <p className="mt-1.5 text-xs leading-5" style={{ color: "var(--ink-muted)" }}>{source.message || "No result was available for this source."}</p>
                             )}

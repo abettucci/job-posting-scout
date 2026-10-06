@@ -113,15 +113,19 @@ def _format_scrape_summary(report: Dict) -> str:
         if source_status == "success":
             lines.append(
                 f"• {source_name}: {source.get('fetched', 0)} encontradas · "
-                f"{source.get('added', 0)} nuevas · {source.get('seen', 0)} ya vistas"
+                f"{source.get('added', 0)} nuevas · {source.get('filtered', 0)} filtradas · "
+                f"{source.get('seen', 0)} ya vistas"
             )
         else:
             marker = "⛔" if source_status == "blocked" else "⏸" if source_status == "paused" else "⚠️"
             message = str(source.get("message") or "No se pudo consultar esta fuente.")
             lines.append(f"• {marker} {source_name}: {message}")
+    auto_filtered = sum(int(source.get("filtered") or 0) for source in report.get("sources", []))
+    eligible = max(0, int(report.get("new_jobs") or 0) - auto_filtered)
     lines.append("")
     lines.append(
         f"Nuevas guardadas: *{report.get('new_jobs', 0)}* · "
+        f"Elegibles: *{eligible}* · Filtradas automáticamente: *{auto_filtered}* · "
         f"Notificaciones de match: *{report.get('notified', 0)}*"
     )
     return "\n".join(lines)

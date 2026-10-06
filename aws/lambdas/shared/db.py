@@ -7,6 +7,11 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Job ids are intentionally stable identifiers supplied by each board, not a
+# chronological value. Keep the index name in one place so every active-queue
+# read uses the same newest-first access path.
+_JOBS_BY_TIMESTAMP_INDEX = "user-timestamp-index"
+
 
 def _to_decimal(obj: Any) -> Any:
     if isinstance(obj, float):
@@ -349,10 +354,17 @@ class DynamoDBClient:
             # until we have a useful page of matching jobs; otherwise a user
             # with many recently-applied rows could see a partially empty Jobs
             # page (or vice versa) even though more matches exist later.
+            #
+            # Never use the table's job_id range key as the ordering here:
+            # source-prefixed ids made a 50-item page consist mostly of old
+            # WorkingNomads/RemoteOK rows while recently saved FreeHire and
+            # OnlineJobs rows were invisible. The timestamp GSI is populated
+            # for every persisted job, including historical rows.
             items: List[Dict] = []
             next_key = last_key
             while len(items) < limit:
                 kwargs: Dict = {
+                    "IndexName": _JOBS_BY_TIMESTAMP_INDEX,
                     "KeyConditionExpression": Key("user_id").eq(user_id),
                     "FilterExpression": filter_expr,
                     "Limit": limit - len(items),
@@ -360,7 +372,20 @@ class DynamoDBClient:
                 }
                 if next_key:
                     kwargs["ExclusiveStartKey"] = next_key
-                resp = self.jobs.query(**kwargs)
+                try:
+                    resp = self.jobs.query(**kwargs)
+                except Exception as exc:
+                    # A Lambda image can be deployed just before DynamoDB
+                    # finishes creating/backfilling this new index. Keep the
+                    # existing queue usable during that short rollout window
+                    # rather than returning an empty page. Do not mask any
+                    # other DynamoDB failure (for example access denied).
+                    error = getattr(exc, "response", {}).get("Error", {})
+                    if error.get("Code") != "ValidationException":
+                        raise
+                    logger.warning("Jobs timestamp index is not ready; falling back to legacy job-id order")
+                    legacy_kwargs = {key: value for key, value in kwargs.items() if key != "IndexName"}
+                    resp = self.jobs.query(**legacy_kwargs)
                 items.extend(_from_decimal(j) for j in resp.get("Items", []))
                 next_key = resp.get("LastEvaluatedKey")
                 if not next_key:
