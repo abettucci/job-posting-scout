@@ -125,7 +125,7 @@ def extract_requirements(title: str, description: str) -> Dict[str, Optional[obj
 # rather than guessed — see extract_requirements()'s docstring for why callers
 # must never treat None as "restricted".
 
-_WORLDWIDE_RE = re.compile(r"\b(worldwide|world[\s-]?wide|anywhere|global|remote[\s-]?first)\b", re.I)
+_WORLDWIDE_RE = re.compile(r"\b(worldwide|world[\s-]?wide|anywhere|everywhere|global|remote[\s-]?first)\b", re.I)
 
 _LATAM_RE = re.compile(
     r"\b(latam|latin\s+america|south\s+america|argentina|brazil|brasil|chile|colombia|"
@@ -137,7 +137,7 @@ _RESTRICTED_RE = re.compile(
     # specific non-LATAM countries commonly seen on these boards
     r"germany|deutschland|france|united\s+kingdom|uk|poland|netherlands|spain|espa[nñ]a|italy|italia|"
     r"portugal|ireland|sweden|switzerland|austria|belgium|denmark|norway|finland|canada|"
-    r"united\s+states|usa|u\.s\.a?\.?|australia|india|philippines|japan|singapore|south\s+africa|"
+    r"united\s+states|usa|u\.s\.a?\.?|australia|india|philippines|japan|singapore|south\s+africa|nigeria|"
     r"gauteng|western\s+cape|kwazulu[\s-]?natal"
     r"|"
     # explicit restriction phrasing

@@ -29,9 +29,9 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
   },
   {
     id: "multi_board",
-    label: "Multi-board (all boards)",
+    label: "Multi-board (global sources)",
     placeholder: "",
-    help: "One profile-shaped search, fanned out across LinkedIn (auto-built URL), global remote boards, FreeHire and Y Combinator.",
+    help: "One profile-shaped search, fanned out across LinkedIn, global remote boards, Wellfound, SimplyHired, FreeHire and Y Combinator.",
   },
   {
     id: "greenhouse",
@@ -123,9 +123,33 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
     placeholder: "",
     help: "Structured global tech jobs from a public feed. Requires keywords below and favors remote roles.",
   },
+  {
+    id: "wellfound",
+    label: "Wellfound",
+    placeholder: "",
+    help: "Public startup-job pages with full descriptions read only after a keyword and location match. Included in Multi-board.",
+  },
+  {
+    id: "simplyhired",
+    label: "SimplyHired",
+    placeholder: "",
+    help: "Public, server-rendered remote search results. US-heavy and some roles are region-restricted. Included in Multi-board.",
+  },
+  {
+    id: "justjoin",
+    label: "JustJoin.IT",
+    placeholder: "",
+    help: "Public technology listings, mainly Poland/Europe. Remote eligibility can be country-specific, so it is not included in Multi-board.",
+  },
+  {
+    id: "dixcover",
+    label: "Dixcover Hub",
+    placeholder: "",
+    help: "Public remote-opportunity feed, largely Africa/Nigeria. Use a specific location filter when appropriate; not included in Multi-board.",
+  },
 ];
 
-const AGGREGATOR_SOURCES: SearchSource[] = ["remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire"];
+const AGGREGATOR_SOURCES: SearchSource[] = ["remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire", "wellfound", "simplyhired", "justjoin", "dixcover"];
 
 export default function SearchForm({ onCreated, onCancel }: Props) {
   const [source, setSource] = useState<SearchSource>("linkedin");

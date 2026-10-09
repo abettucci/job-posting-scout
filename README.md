@@ -25,10 +25,22 @@ Each user configures their own searches and candidate profile (must-have skills,
 | Type | Sources | How it works |
 |---|---|---|
 | LinkedIn (specific URL) | LinkedIn | Playwright scrapes a saved search URL you paste yourself — full control over LinkedIn's own filters (time posted, boolean keywords, etc.) |
-| Multi-board (profile search) | LinkedIn + RemoteOK + Working Nomads + Remotive + Arbeitnow + CompuJobs + OnlineJobs.ph + Y Combinator | One search — job title, seniority, location — fanned out across every source: a LinkedIn URL is auto-built (seniority maps to LinkedIn's native `f_E` experience-level filter), and the job title is used as the keyword filter on the other boards. YC contributes public Buenos Aires and worldwide-remote listings. |
-| ATS (per-company) | Greenhouse, Lever, Ashby, Workable, SmartRecruiters | Public API per company slug (e.g. `stripe`), filtered by keywords/location |
+| Multi-board (profile search) | LinkedIn + RemoteOK + Working Nomads + Remotive + Arbeitnow + CompuJobs + OnlineJobs.ph + Y Combinator + FreeHire + Wellfound + SimplyHired | One search — job title, seniority, location — fanned out across every global source: a LinkedIn URL is auto-built (seniority maps to LinkedIn's native `f_E` experience-level filter), and the job title is used as the keyword filter on the other boards. YC contributes public Buenos Aires and worldwide-remote listings. |
+| Public board (keyword search) | JustJoin.IT, Dixcover Hub | Direct, opt-in sources with public listings. They are not fanned into Multi-board because their remote roles are frequently country/region-specific. |
+| ATS (per-company) | Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Workday, Deel | Public API or public careers page per company, filtered by keywords/location |
 
 Seniority is only a real, structured filter on LinkedIn — the other boards do not expose a compatible seniority field, so a multi-board search doesn't apply it to them (see `handler.py`'s "Multi-board fan-out" section for why). Company size/type isn't filterable on any source yet; none of them expose it via a public API without a paid company-database lookup.
+
+The scraper reads ordinary public pages or documented/public feeds only. It does not authenticate into job boards, use private endpoints, proxies, CAPTCHA solving, or any challenge bypass. A board becoming unavailable is isolated to that source and appears in the per-run dashboard and Telegram report.
+
+### Requested-board audit (2026-10-08)
+
+| Requested source | Status |
+|---|---|
+| Working Nomads, Remotive, OnlineJobs.ph, CompuJobs, YC, FreeHire, Greenhouse, Lever, Ashby, Workday, Deel | Already supported before this audit |
+| SimplyHired, Wellfound (formerly AngelList), JustJoin.IT, Dixcover Hub | Added as public sources in this release |
+| Snaphunt, Virtual Vocations, RemoteHub, Naukri, FlexJobs, Flexible Hire | Not enabled: the public path was unavailable, blocked for ordinary requests, subscription-gated, or the supplied name did not identify a stable canonical job-board URL. They remain candidates for a future integration only if a stable public listing endpoint is available. |
+| InfoRegister, Trustpilot, Crunchbase, Glassdoor, levels.fyi, Sacra, PitchBook | Company-research links, not job-listing sources; retained as human-opened research links rather than automated scrapers. |
 
 ## Stack
 

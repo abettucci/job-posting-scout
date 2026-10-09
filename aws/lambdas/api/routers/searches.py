@@ -12,7 +12,10 @@ from pydantic import BaseModel, HttpUrl, field_validator
 _ATS_SOURCES = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday", "deel"}
 # Aggregators are global job feeds (not company-scoped): no ats_slug, but
 # keywords are required so a subscription doesn't score every job on the feed.
-_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire"}
+_AGGREGATOR_SOURCES = {
+    "remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire",
+    "wellfound", "simplyhired", "justjoin", "dixcover",
+}
 # Multi-board: one profile-shaped search (job_title + seniority) fanned out
 # across LinkedIn (auto-built URL) + every aggregator above. See handler.py.
 _MULTI_BOARD_SOURCE = "multi_board"
@@ -123,6 +126,10 @@ def make_router(db: Any, get_current_user: Callable) -> APIRouter:
                 "onlinejobs": "https://www.onlinejobs.ph/jobseekers/jobsearch",
                 "yc": "https://www.ycombinator.com/jobs",
                 "freehire": "https://freehire.me/",
+                "wellfound": "https://wellfound.com/jobs",
+                "simplyhired": "https://www.simplyhired.com/search?l=remote",
+                "justjoin": "https://justjoin.it/job-offers/all-locations",
+                "dixcover": "https://jobs.smartyacad.com/category/remote/",
             }
             effective_url = body.url or aggregator_url_map.get(source, f"https://{source}.com/")
         elif source == "workday":

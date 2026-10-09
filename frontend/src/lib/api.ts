@@ -236,6 +236,10 @@ export type SearchSource =
   | "onlinejobs"
   | "yc"
   | "freehire"
+  | "wellfound"
+  | "simplyhired"
+  | "justjoin"
+  | "dixcover"
   | "multi_board";
 
 export type Seniority = "" | "internship" | "entry" | "associate" | "mid" | "senior" | "staff" | "director" | "executive";

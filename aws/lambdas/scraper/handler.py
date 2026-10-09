@@ -66,6 +66,10 @@ _SOURCE_LABELS = {
     "onlinejobs": "OnlineJobs.ph",
     "yc": "Y Combinator",
     "freehire": "FreeHire",
+    "wellfound": "Wellfound",
+    "simplyhired": "SimplyHired",
+    "justjoin": "JustJoin.IT",
+    "dixcover": "Dixcover Hub",
     "greenhouse": "Greenhouse",
     "lever": "Lever",
     "ashby": "Ashby",
@@ -188,7 +192,17 @@ async def _fetch_ats(source: str, slug: str, label: str, keywords: str, location
 # feeds — a single fetch returns postings from many companies, so there is no
 # slug to key on. Keywords act as the primary filter to keep volume sane.
 
-_AGGREGATOR_SOURCES = {"remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire"}
+_AGGREGATOR_SOURCES = {
+    "remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire",
+    "wellfound", "simplyhired", "justjoin", "dixcover",
+}
+# These have broad enough global coverage for profile-shaped searches. The two
+# regional sources stay selectable, but are intentionally opt-in so a global
+# remote search does not silently collect country-restricted postings.
+_MULTI_BOARD_AGGREGATOR_SOURCES = {
+    "remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire",
+    "wellfound", "simplyhired",
+}
 
 
 async def _fetch_aggregator(source: str, keywords: str, location_filter: str) -> List[Dict]:
@@ -209,6 +223,14 @@ async def _fetch_aggregator(source: str, keywords: str, location_filter: str) ->
         from providers.yc import fetch_jobs
     elif source == "freehire":
         from providers.freehire import fetch_jobs
+    elif source == "wellfound":
+        from providers.wellfound import fetch_jobs
+    elif source == "simplyhired":
+        from providers.simplyhired import fetch_jobs
+    elif source == "justjoin":
+        from providers.justjoin import fetch_jobs
+    elif source == "dixcover":
+        from providers.dixcover import fetch_jobs
     else:
         logger.warning(f"Unknown aggregator source: {source}")
         return []
@@ -621,7 +643,7 @@ async def _main():
                 seniorities = s.get("seniorities") or ([] if not s.get("seniority") else [s["seniority"]])
                 location_filter = s.get("location_filter", "")
                 ensure_source(user, "linkedin")
-                for agg_source in _AGGREGATOR_SOURCES:
+                for agg_source in _MULTI_BOARD_AGGREGATOR_SOURCES:
                     ensure_source(user, agg_source)
 
                 # 1) LinkedIn — auto-built URL, folded into the existing LinkedIn flow
@@ -631,7 +653,7 @@ async def _main():
                         linkedin_url_to_users.setdefault(li_url, []).append((user, s))
 
                 # 2) Every aggregator board — folded into the existing aggregator flow
-                for agg_source in _AGGREGATOR_SOURCES:
+                for agg_source in _MULTI_BOARD_AGGREGATOR_SOURCES:
                     key = (agg_source, job_title, location_filter)
                     if key not in aggregator_key_to_info:
                         aggregator_key_to_info[key] = {"label": s.get("label", job_title), "subscriptions": []}

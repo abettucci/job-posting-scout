@@ -12,6 +12,7 @@ const SOURCE_NAMES: Record<string, string> = {
   linkedin: "LinkedIn", remoteok: "Remote OK", workingnomads: "Working Nomads",
   remotive: "Remotive", arbeitnow: "Arbeitnow", compujobs: "CompuJobs",
   onlinejobs: "OnlineJobs.ph", yc: "Y Combinator", freehire: "FreeHire",
+  wellfound: "Wellfound", simplyhired: "SimplyHired", justjoin: "JustJoin.IT", dixcover: "Dixcover Hub",
   greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workable: "Workable",
   smartrecruiters: "SmartRecruiters", workday: "Workday", deel: "Deel",
 };

@@ -12,6 +12,7 @@ class LocationMatchTests(unittest.TestCase):
         self.assertTrue(location_match("Remote", "Argentina, Worldwide"))
         self.assertTrue(location_match("Fully remote", "Worldwide"))
         self.assertTrue(location_match("Worldwide / Remote", "Worldwide"))
+        self.assertTrue(location_match("Remote — Everywhere", "Worldwide"))
         self.assertFalse(location_match("Remote (United States)", "Worldwide"))
         self.assertFalse(location_match("Remote Poland", "Worldwide"))
         self.assertFalse(location_match("Remote — EMEA", "Worldwide"))

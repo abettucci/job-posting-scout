@@ -38,7 +38,7 @@ def location_match(job_location: str, location_filter: str) -> bool:
     # as "Remote (US)", "Remote Poland" or "Remote — EMEA" remain excluded.
     def is_unrestricted_remote(value: str) -> bool:
         compact = value.strip(" .,:;|/-")
-        explicitly_global = ("worldwide", "global", "anywhere", "work from anywhere")
+        explicitly_global = ("worldwide", "global", "anywhere", "everywhere", "work from anywhere")
         if any(marker in compact for marker in explicitly_global):
             return True
         return compact in {
@@ -48,7 +48,7 @@ def location_match(job_location: str, location_filter: str) -> bool:
 
     worldwide_preferences = {
         "worldwide", "remote", "remote worldwide", "worldwide remote",
-        "global", "global remote", "anywhere", "work from anywhere",
+        "global", "global remote", "anywhere", "everywhere", "work from anywhere",
     }
     for alternative in alternatives:
         if alternative in worldwide_preferences:
