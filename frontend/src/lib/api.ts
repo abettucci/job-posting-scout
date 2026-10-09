@@ -101,9 +101,9 @@ export const api = {
     }),
 
   // Jobs
-  getJobs: (minScore = 0, limit = 20, applied?: boolean, dismissed?: boolean) =>
-    req<{ items: Job[]; count: number }>(
-      `/jobs?min_score=${minScore}&limit=${limit}${applied !== undefined ? `&applied=${applied}` : ""}${dismissed !== undefined ? `&dismissed=${dismissed}` : ""}`
+  getJobs: (minScore = 0, limit = 20, applied?: boolean, dismissed?: boolean, autoFiltered?: boolean, cursor?: string | null) =>
+    req<{ items: Job[]; count: number; next_cursor?: string | null }>(
+      `/jobs?min_score=${minScore}&limit=${limit}${applied !== undefined ? `&applied=${applied}` : ""}${dismissed !== undefined ? `&dismissed=${dismissed}` : ""}${autoFiltered !== undefined ? `&auto_filtered=${autoFiltered}` : ""}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`
     ),
   createInterviewBrief: (jobId: string) =>
     req<InterviewBrief>("/jobs/interview-brief", { method: "POST", body: JSON.stringify({ job_id: jobId }) }),
@@ -116,6 +116,11 @@ export const api = {
     req<{ job_id: string; dismissed: boolean }>("/jobs/dismissed", {
       method: "PATCH",
       body: JSON.stringify({ job_id: jobId, dismissed }),
+    }),
+  setJobFilterOverride: (jobId: string, filterOverride: boolean) =>
+    req<{ job_id: string; filter_override: boolean }>("/jobs/filter-override", {
+      method: "PATCH",
+      body: JSON.stringify({ job_id: jobId, filter_override: filterOverride }),
     }),
 
   // Conversational discovery
@@ -378,6 +383,9 @@ export interface Job {
   // This field is normally present only on filtered (SKIP) postings.
   missing_required_skills?: string[];
   deal_breaker: boolean;
+  // True only after you explicitly keep a false positive from Filtered.
+  // It remains auditable through the original deal_breaker reasons.
+  filter_override?: boolean;
   recommendation: "APPLY" | "MAYBE" | "SKIP";
   notified: boolean;
   timestamp: string;

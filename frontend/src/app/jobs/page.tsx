@@ -70,7 +70,12 @@ function timeAgo(date: Date): string {
 function effectiveSeniority(job: Job): SeniorityLevel {
   // Backfill display/filter behavior for rows saved before the scraper began
   // assigning a default level to otherwise-neutral titles.
-  if (job.seniority_level) return job.seniority_level;
+  if (
+    job.seniority_level &&
+    SENIORITY_OPTIONS.some((option) => option.id === job.seniority_level)
+  ) {
+    return job.seniority_level;
+  }
   return job.min_years_experience !== null && job.min_years_experience > 5 ? "mid" : "entry";
 }
 
@@ -92,6 +97,8 @@ export default function JobsPage() {
   const [searches, setSearches] = useState<Search[]>([]);
   const [minScore, setMinScore] = useState(0);
   const [fetching, setFetching] = useState(true);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [sortBy, setSortBy] = useState<SortBy>("posted_date");
   const [titleFilter, setTitleFilter] = useState("");
   const [seniorityFilter, setSeniorityFilter] = useState<SeniorityLevel[]>([]);
@@ -118,13 +125,31 @@ export default function JobsPage() {
   useEffect(() => {
     if (!user) return;
     setFetching(true);
-    // Explicitly request only the active queue. Older rows with no `applied`
-    // attribute are treated as not applied by the API, so this also works for
-    // every job saved before the feature existed.
-    api.getJobs(minScore, 50, false, false)
-      .then((r) => setJobs(r.items.filter((job) => !hiddenJobIds.current.has(job.job_id))))
+    // Ask DynamoDB for the active queue itself. Previously the API returned
+    // the newest 50 mixed rows and this component hid auto-filtered jobs only
+    // afterwards; a run full of filtered rows therefore looked like no history.
+    api.getJobs(minScore, 50, false, false, false)
+      .then((r) => {
+        setJobs(r.items.filter((job) => !hiddenJobIds.current.has(job.job_id)));
+        setNextCursor(r.next_cursor ?? null);
+      })
       .finally(() => setFetching(false));
   }, [user, minScore]);
+
+  const loadMore = async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const result = await api.getJobs(minScore, 50, false, false, false, nextCursor);
+      setJobs((current) => [
+        ...current,
+        ...result.items.filter((job) => !hiddenJobIds.current.has(job.job_id) && !current.some((item) => item.job_id === job.job_id)),
+      ]);
+      setNextCursor(result.next_cursor ?? null);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   // These rules also hide jobs collected before the preference was saved. The
   // scraper enforces them for every new job before scoring or notification.
@@ -177,9 +202,9 @@ export default function JobsPage() {
       // These jobs were rejected by a deterministic eligibility rule (for
       // example, Germany-only when the profile allows Argentina/LATAM). Keep
       // the record for auditability, but don't make the active queue noisy.
-      if (j.deal_breaker) return false;
-      if (targetSeniorities.length > 0 && !targetSeniorities.includes(effectiveSeniority(j))) return false;
-      if (maxRequiredYears && j.min_years_experience && j.min_years_experience > maxRequiredYears) return false;
+      if (j.deal_breaker && !j.filter_override) return false;
+      if (!j.filter_override && targetSeniorities.length > 0 && !targetSeniorities.includes(effectiveSeniority(j))) return false;
+      if (!j.filter_override && maxRequiredYears && j.min_years_experience && j.min_years_experience > maxRequiredYears) return false;
       if (terms.length > 0 && !terms.some((t) => j.title.toLowerCase().includes(t))) return false;
       if (seniorityFilter.length > 0 && !seniorityFilter.includes(effectiveSeniority(j))) return false;
       if (years !== null && j.min_years_experience !== null && j.min_years_experience > years) return false;
@@ -410,6 +435,7 @@ export default function JobsPage() {
         ) : visibleJobs.length === 0 ? (
           <div className="card text-center py-12">
             <p className="text-slate-600 dark:text-slate-400">No jobs found for this filter.</p>
+            <p className="text-slate-500 text-sm mt-1">Jobs excluded by your saved rules are available in Filtered.</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -431,6 +457,13 @@ export default function JobsPage() {
                 }}
               />
             ))}
+          </div>
+        )}
+        {nextCursor && (
+          <div className="flex justify-center pt-2">
+            <button type="button" onClick={loadMore} disabled={loadingMore} className="btn-ghost text-sm disabled:opacity-50">
+              {loadingMore ? "Loading…" : "Load more jobs"}
+            </button>
           </div>
         )}
         </section>

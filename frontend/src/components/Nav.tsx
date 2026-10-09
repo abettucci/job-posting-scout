@@ -8,6 +8,7 @@ import { useTheme } from "@/lib/theme";
 const links = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/jobs", label: "Jobs" },
+  { href: "/filtered", label: "Filtered" },
   { href: "/applied", label: "Applied" },
   { href: "/dismissed", label: "Dismissed" },
   { href: "/interviews", label: "Interviews" },

@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 # chronological value. Keep the index name in one place so every active-queue
 # read uses the same newest-first access path.
 _JOBS_BY_TIMESTAMP_INDEX = "user-timestamp-index"
+_JOB_TTL_DAYS = 180
 
 
 def _to_decimal(obj: Any) -> Any:
@@ -208,7 +209,10 @@ class DynamoDBClient:
             return False
 
     def save_job(self, job: Dict) -> bool:
-        ttl = int((datetime.utcnow() + timedelta(days=60)).timestamp())
+        # A job search and the related application process commonly span more
+        # than two months. Keep saved, applied, dismissed, and auto-filtered
+        # postings long enough to make the activity/audit history useful.
+        ttl = int((datetime.utcnow() + timedelta(days=_JOB_TTL_DAYS)).timestamp())
         try:
             self.jobs.put_item(Item={"ttl": ttl, **_to_decimal(job)})
             return True
@@ -335,6 +339,7 @@ class DynamoDBClient:
         last_key: Optional[Dict] = None,
         applied: Optional[bool] = None,
         dismissed: Optional[bool] = None,
+        deal_breaker: Optional[bool] = None,
     ) -> tuple[List[Dict], Optional[Dict]]:
         try:
             filter_expr = Attr("score").gte(min_score)
@@ -349,6 +354,17 @@ class DynamoDBClient:
                 filter_expr = filter_expr & (
                     Attr("dismissed").eq(True) if dismissed
                     else (Attr("dismissed").not_exists() | Attr("dismissed").eq(False))
+                )
+            if deal_breaker is not None:
+                # Jobs saved before automatic eligibility filters existed do
+                # not have this attribute. Treat them as normal queue jobs;
+                # only an explicit True belongs in the audit queue. A manual
+                # review can override a false positive without mutating the
+                # original audit reason.
+                filter_expr = filter_expr & (
+                    (Attr("deal_breaker").eq(True) & (Attr("filter_override").not_exists() | Attr("filter_override").eq(False)))
+                    if deal_breaker
+                    else (Attr("deal_breaker").not_exists() | Attr("deal_breaker").eq(False) | Attr("filter_override").eq(True))
                 )
             # DynamoDB applies FilterExpression *after* Limit. Keep querying
             # until we have a useful page of matching jobs; otherwise a user
@@ -386,7 +402,15 @@ class DynamoDBClient:
                     logger.warning("Jobs timestamp index is not ready; falling back to legacy job-id order")
                     legacy_kwargs = {key: value for key, value in kwargs.items() if key != "IndexName"}
                     resp = self.jobs.query(**legacy_kwargs)
-                items.extend(_from_decimal(j) for j in resp.get("Items", []))
+                for raw_item in resp.get("Items", []):
+                    item = _from_decimal(raw_item)
+                    # Some early rows persisted the string "unknown" before
+                    # default seniority inference existed. It is not one of
+                    # the public seniority values; returning None lets the UI
+                    # apply the same neutral-title fallback as new rows.
+                    if item.get("seniority_level") == "unknown":
+                        item["seniority_level"] = None
+                    items.append(item)
                 next_key = resp.get("LastEvaluatedKey")
                 if not next_key:
                     break
@@ -394,6 +418,37 @@ class DynamoDBClient:
         except Exception as e:
             logger.error(f"get_user_jobs error: {e}")
             return [], None
+
+    def set_job_filter_override(self, user_id: str, job_id: str, filter_override: bool) -> bool:
+        """Include/exclude one reviewed false positive from the main queue.
+
+        The original deterministic reason remains attached to the job for
+        auditability. This is a user decision, not an automatic re-score.
+        """
+        try:
+            if filter_override:
+                update_expr = "SET filter_override = :filter_override, filter_override_at = :reviewed_at"
+                values = {
+                    ":filter_override": True,
+                    ":reviewed_at": datetime.now(timezone.utc).isoformat(),
+                }
+            else:
+                update_expr = "REMOVE filter_override, filter_override_at"
+                values = None
+            kwargs: Dict[str, Any] = {
+                "Key": {"user_id": user_id, "job_id": job_id},
+                "ConditionExpression": Attr("job_id").exists(),
+                "UpdateExpression": update_expr,
+            }
+            if values is not None:
+                kwargs["ExpressionAttributeValues"] = values
+            self.jobs.update_item(**kwargs)
+            return True
+        except self.jobs.meta.client.exceptions.ConditionalCheckFailedException:
+            return False
+        except Exception as e:
+            logger.error(f"set_job_filter_override error: {e}")
+            return False
 
     # ── Telegram codes ───────────────────────────────────────────────────────
 

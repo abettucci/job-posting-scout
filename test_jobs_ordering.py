@@ -94,6 +94,27 @@ class JobsOrderingTests(unittest.TestCase):
         self.assertIn("IndexName", db.jobs.calls[0])
         self.assertNotIn("IndexName", db.jobs.calls[1])
 
+    def test_auto_filtered_queue_uses_the_same_timestamp_index(self):
+        db = DynamoDBClient.__new__(DynamoDBClient)
+        db.jobs = _FakeJobsTable()
+
+        items, _ = db.get_user_jobs("user-1", limit=50, applied=False, dismissed=False, deal_breaker=True)
+
+        self.assertEqual(items[0]["job_id"], "freehire:new")
+        self.assertEqual(db.jobs.calls[0]["IndexName"], "user-timestamp-index")
+
+    def test_legacy_unknown_seniority_is_returned_as_unclassified(self):
+        db = DynamoDBClient.__new__(DynamoDBClient)
+        db.jobs = _FakeJobsTable()
+        db.jobs.query = lambda **_kwargs: {"Items": [{
+            "job_id": "legacy:unknown", "timestamp": "2026-10-06T01:46:19+00:00", "score": 72,
+            "seniority_level": "unknown",
+        }]}
+
+        items, _ = db.get_user_jobs("user-1", limit=50, applied=False, dismissed=False, deal_breaker=False)
+
+        self.assertIsNone(items[0]["seniority_level"])
+
 
 if __name__ == "__main__":
     unittest.main()

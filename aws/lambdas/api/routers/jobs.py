@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import re
 from datetime import datetime, timedelta, timezone
@@ -19,6 +21,26 @@ _GOOGLE_NEWS_HOST = "news.google.com"
 _MAX_RSS_BYTES = 400_000
 _BRIEF_CACHE_TTL = timedelta(days=7)
 _TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _encode_cursor(key: Dict | None) -> str | None:
+    if not key:
+        return None
+    raw = json.dumps(key, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _decode_cursor(value: str | None, user_id: str) -> Dict | None:
+    if not value:
+        return None
+    try:
+        padding = "=" * (-len(value) % 4)
+        key = json.loads(base64.urlsafe_b64decode(value + padding).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        raise HTTPException(400, "Invalid jobs cursor") from None
+    if not isinstance(key, dict) or key.get("user_id") != user_id:
+        raise HTTPException(400, "Invalid jobs cursor")
+    return key
 
 # Keep AI prose useful, direct, and grounded. This mirrors the resume-writing
 # quality bar without turning the research brief into generic interview filler.
@@ -93,6 +115,10 @@ class JobAppliedUpdate(JobReference):
 
 class JobDismissedUpdate(JobReference):
     dismissed: bool
+
+
+class JobFilterOverrideUpdate(JobReference):
+    filter_override: bool
 
 
 class InterviewBriefOutput(BaseModel):
@@ -245,16 +271,20 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
         limit: int = Query(20, ge=1, le=100),
         applied: bool | None = Query(None),
         dismissed: bool | None = Query(None),
+        auto_filtered: bool | None = Query(None),
+        cursor: str | None = Query(None),
         user=Depends(get_current_user),
     ):
         items, next_key = db.get_user_jobs(
             user_id=user["user_id"],
             min_score=min_score,
             limit=limit,
+            last_key=_decode_cursor(cursor, user["user_id"]),
             applied=applied,
             dismissed=dismissed,
+            deal_breaker=auto_filtered,
         )
-        return {"items": items, "count": len(items)}
+        return {"items": items, "count": len(items), "next_cursor": _encode_cursor(next_key)}
 
     @router.patch("/applied")
     def set_applied(
@@ -278,6 +308,16 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
         if not ok:
             raise HTTPException(404, "Job not found")
         return {"job_id": body.job_id, "dismissed": body.dismissed}
+
+    @router.patch("/filter-override")
+    def set_filter_override(
+        body: JobFilterOverrideUpdate = ...,
+        user=Depends(get_current_user),
+    ):
+        ok = db.set_job_filter_override(user["user_id"], body.job_id, body.filter_override)
+        if not ok:
+            raise HTTPException(404, "Job not found")
+        return {"job_id": body.job_id, "filter_override": body.filter_override}
 
     @router.post("/interview-brief")
     async def create_interview_brief(
