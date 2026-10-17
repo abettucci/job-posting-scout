@@ -110,6 +110,8 @@ export default function JobsPage() {
   const [expYearsFilter, setExpYearsFilter] = useState("");
   const [rescoring, setRescoring] = useState(false);
   const [rescoreMsg, setRescoreMsg] = useState("");
+  const [refreshingEligibility, setRefreshingEligibility] = useState(false);
+  const [eligibilityMsg, setEligibilityMsg] = useState("");
   const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [targetSeniorities, setTargetSeniorities] = useState<SeniorityLevel[]>([]);
   const [maxRequiredYears, setMaxRequiredYears] = useState<number | null>(null);
@@ -186,6 +188,19 @@ export default function JobsPage() {
       setRescoreMsg(`Error: ${err instanceof Error ? err.message : "unknown error"}`);
     } finally {
       setRescoring(false);
+    }
+  };
+
+  const handleEligibilityRefresh = async () => {
+    setRefreshingEligibility(true);
+    setEligibilityMsg("");
+    try {
+      await api.refreshJobEligibility();
+      setEligibilityMsg("Saved jobs are being checked against your location, seniority, and experience preferences. Refresh shortly.");
+    } catch (err: unknown) {
+      setEligibilityMsg(`Error: ${err instanceof Error ? err.message : "unknown error"}`);
+    } finally {
+      setRefreshingEligibility(false);
     }
   };
 
@@ -427,6 +442,21 @@ export default function JobsPage() {
         {rescoreMsg && (
           <p className={`text-xs ${rescoreMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
             {rescoreMsg}
+          </p>
+        )}
+        {!fetching && (
+          <div className="card flex items-center justify-between flex-wrap gap-3 border-slate-700/50">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              Recheck saved jobs after changing location, seniority, or experience preferences. This uses deterministic filters only and does not consume AI evaluations.
+            </p>
+            <button onClick={handleEligibilityRefresh} disabled={refreshingEligibility} className="btn-ghost text-sm whitespace-nowrap disabled:opacity-50">
+              {refreshingEligibility ? "Checking…" : "Recheck saved filters"}
+            </button>
+          </div>
+        )}
+        {eligibilityMsg && (
+          <p className={`text-xs ${eligibilityMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
+            {eligibilityMsg}
           </p>
         )}
 

@@ -153,6 +153,12 @@ _RESTRICTED_RE = re.compile(
     r")\b", re.I,
 )
 
+# A bare "US" is intentionally separate from _RESTRICTED_RE: matching it in
+# a full description would also match the ordinary English pronoun ("join us").
+# The compact code is safe and useful in the structured location field, where
+# boards commonly publish exactly "US" or "Remote — US".
+_US_LOCATION_RE = re.compile(r"\b(?:us|u\.s\.?|usa|u\.s\.a\.?)\b", re.I)
+
 
 def extract_region_scope(location: str, description: str) -> Optional[str]:
     """Best-effort classification of a posting's remote eligibility: "worldwide",
@@ -179,6 +185,8 @@ def extract_region_scope(location: str, description: str) -> Optional[str]:
         return "worldwide"
     if _LATAM_RE.search(location):
         return "latam"
+    if _US_LOCATION_RE.search(location):
+        return "restricted"
     if _RESTRICTED_RE.search(combined):
         return "restricted"
     return None

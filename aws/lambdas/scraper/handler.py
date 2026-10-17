@@ -444,12 +444,15 @@ def _region_mismatch(job: Dict, profile: Dict) -> Dict | None:
 
 def lambda_handler(event, context):
     mode = (event or {}).get("mode", "scrape")
-    if mode in ("rescore", "profile_refresh"):
+    if mode in ("rescore", "profile_refresh", "eligibility_refresh"):
         user_id = (event or {}).get("user_id")
         if not user_id:
             logger.error("profile scoring mode requires a user_id")
             return {"statusCode": 400, "body": "user_id required for profile scoring"}
-        asyncio.run(_rescore(user_id, include_scored=mode == "profile_refresh"))
+        if mode == "eligibility_refresh":
+            asyncio.run(_refresh_eligibility(user_id))
+        else:
+            asyncio.run(_rescore(user_id, include_scored=mode == "profile_refresh"))
     else:
         asyncio.run(_main())
     return {"statusCode": 200, "body": "done"}
@@ -520,6 +523,65 @@ async def _rescore(user_id: str, include_scored: bool = False):
         _save_scored_job(db, user_id, job, result, notified=False)
 
     logger.info(f"rescore: done. scored {scored}/{len(unscored)} jobs for user {user_id}.")
+
+
+async def _refresh_eligibility(user_id: str):
+    """Apply current deterministic preferences to saved active jobs.
+
+    This is deliberately separate from re-scoring: reclassifying location,
+    seniority, and stated years never calls an AI provider or sends another
+    notification. It makes older rows obey the same hard filters as new jobs.
+    """
+    cfg = get_config()
+    db = DynamoDBClient(
+        users_table=cfg.users_table,
+        searches_table=cfg.searches_table,
+        profiles_table=cfg.profiles_table,
+        jobs_table=cfg.jobs_table,
+        telegram_codes_table=cfg.telegram_codes_table,
+        resumes_table=cfg.resumes_table,
+        region=cfg.region,
+    )
+    profile = _scoring_profile(db, user_id)
+    if not profile:
+        logger.warning("eligibility refresh: user %s has no profile", user_id)
+        return
+
+    jobs: List[Dict] = []
+    last_key = None
+    while True:
+        items, last_key = db.get_user_jobs(
+            user_id=user_id, min_score=0, limit=100, last_key=last_key,
+            applied=False, dismissed=False, deal_breaker=False,
+        )
+        jobs.extend(items)
+        if not last_key:
+            break
+
+    filtered = 0
+    refreshed = 0
+    for job in jobs:
+        enriched = _enrich_job(job)
+        # A person may consciously keep a reviewed false positive; never put
+        # that override back in Filtered during a bulk refresh.
+        mismatch = None if job.get("filter_override") else (
+            _seniority_mismatch(enriched, profile)
+            or _experience_mismatch(enriched, profile)
+            or _region_mismatch(enriched, profile)
+        )
+        updated = {**job, **enriched}
+        if mismatch:
+            updated.update(mismatch)
+            updated["notified"] = False
+            updated["scoring_status"] = "filtered"
+            filtered += 1
+        db.save_job(updated)
+        refreshed += 1
+
+    logger.info(
+        "eligibility refresh: updated %s active jobs; filtered %s for user %s",
+        refreshed, filtered, user_id,
+    )
 
 
 async def _main():

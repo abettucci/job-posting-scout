@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "aws/lambdas/shared"))
 
-from seniority import extract_requirements  # noqa: E402
+from seniority import extract_region_scope, extract_requirements  # noqa: E402
 
 
 class SeniorityExtractionTests(unittest.TestCase):
@@ -27,6 +27,10 @@ class SeniorityExtractionTests(unittest.TestCase):
         result = extract_requirements("Senior Specialist", "Requires 2 years of experience")
         self.assertEqual(result["seniority_level"], "staff")
         self.assertEqual(result["min_years_experience"], 2)
+
+    def test_us_location_is_restricted_but_us_pronoun_in_description_is_not(self):
+        self.assertEqual(extract_region_scope("US", "Remote role"), "restricted")
+        self.assertIsNone(extract_region_scope("Remote", "Join us to build a global product"))
 
 
 if __name__ == "__main__":

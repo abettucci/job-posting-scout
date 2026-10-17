@@ -86,13 +86,13 @@ def run_scraper(mode: str = "scrape", current_user=Depends(get_current_user)):
     scoring evaluations. It re-checks only active cards after the candidate
     updates their saved CV; it never sends historical notifications again.
     """
-    if mode not in ("scrape", "rescore", "profile_refresh"):
-        raise HTTPException(status_code=400, detail="mode must be 'scrape', 'rescore', or 'profile_refresh'")
+    if mode not in ("scrape", "rescore", "profile_refresh", "eligibility_refresh"):
+        raise HTTPException(status_code=400, detail="mode must be 'scrape', 'rescore', 'profile_refresh', or 'eligibility_refresh'")
     scraper_name = os.environ.get("SCRAPER_FUNCTION_NAME", "linkedin-job-scout-prod-scraper")
     try:
         lambda_client = boto3.client("lambda", region_name=_cfg.region)
         payload: dict = {"mode": mode}
-        if mode in ("rescore", "profile_refresh"):
+        if mode in ("rescore", "profile_refresh", "eligibility_refresh"):
             payload["user_id"] = current_user["user_id"]
         response = lambda_client.invoke(
             FunctionName=scraper_name,

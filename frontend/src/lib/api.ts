@@ -142,6 +142,7 @@ export const api = {
   getScrapeRuns: (limit = 8) => req<ScrapeRun[]>(`/scrape-runs?limit=${limit}`),
   rescoreJobs: () => req<{ triggered: boolean }>("/scraper/run?mode=rescore", { method: "POST" }),
   refreshJobsForCv: () => req<{ triggered: boolean }>("/scraper/run?mode=profile_refresh", { method: "POST" }),
+  refreshJobEligibility: () => req<{ triggered: boolean }>("/scraper/run?mode=eligibility_refresh", { method: "POST" }),
 
   // Interviews
   getInterviews: () => req<Interview[]>("/interviews"),
