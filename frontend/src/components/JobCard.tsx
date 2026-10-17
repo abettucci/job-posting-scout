@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, type Job } from "@/lib/api";
 
@@ -77,7 +77,19 @@ export default function JobCard({ job, onAppliedChange, onDismissedChange }: Pro
   const router = useRouter();
   const [applying, setApplying] = useState(false);
   const [dismissing, setDismissing] = useState(false);
+  // The parent removes a moved card once the API confirms the action. Keep an
+  // optimistic value here as well so a late queue fetch cannot briefly put the
+  // card back on screen after the person dismisses or restores it.
+  const [dismissedOverride, setDismissedOverride] = useState<boolean | null>(null);
   const [actionError, setActionError] = useState("");
+  const dismissed = dismissedOverride ?? job.dismissed;
+
+  useEffect(() => {
+    // A fresh job value from the queue is now the source of truth. Until that
+    // happens, retain a successful optimistic move even if the parent rerenders
+    // with an older copy of this job.
+    setDismissedOverride(null);
+  }, [job.dismissed]);
   const seniorityLevel = effectiveSeniority(job);
   const foundDate = new Date(job.timestamp).toLocaleDateString("en-US", {
     month: "short",
@@ -105,19 +117,27 @@ export default function JobCard({ job, onAppliedChange, onDismissedChange }: Pro
   };
 
   const handleToggleDismissed = async () => {
-    const next = !job.dismissed;
+    const next = !dismissed;
     setActionError("");
+    setDismissedOverride(next);
     setDismissing(true);
     try {
       await api.setJobDismissed(job.job_id, next);
       onDismissedChange?.(job.job_id, next);
     } catch (err) {
       console.error("Failed to update dismissed status", err);
+      setDismissedOverride(null);
       setActionError("Couldn’t update this job. Please try again.");
     } finally {
       setDismissing(false);
     }
   };
+
+  // The current queue no longer owns a job while it is being moved. Rendering
+  // this locally (rather than only after the parent callback) closes the race
+  // with slow or stale list responses. On an error the override is cleared and
+  // the original card, including its error message, returns.
+  if (dismissed !== job.dismissed) return null;
 
   return (
     <article className="card space-y-4 hover:-translate-y-0.5 hover:border-orange-300 dark:hover:border-orange-400/50 transition-all duration-200">
@@ -261,15 +281,16 @@ export default function JobCard({ job, onAppliedChange, onDismissedChange }: Pro
           )}
           <button
             onClick={handleToggleDismissed}
-            disabled={dismissing}
-            title={job.dismissed ? "Restore to Jobs" : "Move to Dismissed"}
+            type="button"
+            disabled={dismissing || applying}
+            title={dismissed ? "Restore to Jobs" : "Move to Dismissed"}
             className={`text-xs transition-colors disabled:opacity-50 ${
-              job.dismissed
+              dismissed
                 ? "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 : "text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400"
             }`}
           >
-            {dismissing ? "…" : job.dismissed ? "↩ Restore" : "× Dismiss"}
+            {dismissing ? "…" : dismissed ? "↩ Restore" : "× Dismiss"}
           </button>
           <a
             href={job.url}

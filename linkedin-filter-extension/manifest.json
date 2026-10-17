@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Scout Lens — Local LinkedIn Filters",
+  "version": "0.1.0",
+  "description": "Local-only filters for years, seniority, required technologies, and company size on LinkedIn Jobs.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["https://www.linkedin.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Scout Lens",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*"],
+      "js": ["rules.js", "content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

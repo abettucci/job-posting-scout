@@ -1,0 +1,13 @@
+:root { color: #16221d; background: #f7f5ef; font-family: "Avenir Next", Avenir, "Helvetica Neue", sans-serif; }
+body { margin: 0; min-width: 270px; }
+main { padding: 17px; }
+.eyebrow { color: #e85d36; font-size: 9px; font-weight: 800; letter-spacing: .14em; margin: 0 0 4px; }
+h1 { font: 700 26px/1 Georgia, "Times New Roman", serif; letter-spacing: -.06em; margin: 0 0 12px; }
+#status { color: #526057; font-size: 12px; line-height: 1.35; margin: 0 0 14px; }
+dl { border-block: 1px solid #d8d4c7; display: grid; grid-template-columns: 1fr 1fr; margin: 0 0 14px; padding: 10px 0; }
+dl div + div { border-left: 1px solid #d8d4c7; padding-left: 11px; }
+dt { color: #667269; font-size: 10px; text-transform: uppercase; }
+dd { font: 700 18px/1.2 Georgia, serif; margin: 3px 0 0; }
+button { background: #16221d; border: 1px solid #16221d; border-radius: 2px; color: #fffdf8; cursor: pointer; font: 700 11px/1 "Avenir Next", Avenir, sans-serif; margin-bottom: 7px; padding: 10px; width: 100%; }
+button.quiet { background: transparent; color: #16221d; }
+.hint { color: #667269; font-size: 10px; line-height: 1.4; margin: 8px 0 0; }

@@ -1,0 +1,97 @@
+#js-lens-root {
+  --lens-ink: #16221d;
+  --lens-paper: #fffdf8;
+  --lens-muted: #667269;
+  --lens-rule: #d8d4c7;
+  --lens-coral: #e85d36;
+  --lens-coral-deep: #b33b1d;
+  --lens-mint: #dff3e6;
+  --lens-warning: #fff0d5;
+  all: initial;
+  color: var(--lens-ink);
+  font-family: Georgia, "Times New Roman", serif;
+  position: fixed;
+  right: 18px;
+  top: 84px;
+  width: min(340px, calc(100vw - 36px));
+  z-index: 2147483646;
+}
+
+#js-lens-root *, #js-lens-root *::before, #js-lens-root *::after { box-sizing: border-box; }
+
+.js-lens-shell {
+  background: var(--lens-paper);
+  border: 1px solid var(--lens-ink);
+  border-radius: 3px 3px 18px 3px;
+  box-shadow: 7px 8px 0 rgba(22, 34, 29, .14), 0 16px 36px rgba(22, 34, 29, .14);
+  overflow: hidden;
+}
+
+#js-lens-root.is-collapsed .js-lens-status,
+#js-lens-root.is-collapsed .js-lens-native,
+#js-lens-root.is-collapsed .js-lens-fields,
+#js-lens-root.is-collapsed .js-lens-footer { display: none; }
+
+.js-lens-header {
+  background: var(--lens-ink);
+  color: var(--lens-paper);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 14px 15px 12px;
+}
+
+.js-lens-kicker, .js-lens-header h2, .js-lens-status, .js-lens-native, .js-lens-label,
+.js-lens-input, .js-lens-toggle, .js-lens-chip, .js-lens-footer, .js-lens-text-button {
+  font-family: "Avenir Next", Avenir, "Helvetica Neue", sans-serif;
+}
+
+.js-lens-kicker { font-size: 9px; letter-spacing: .16em; font-weight: 800; margin: 0 0 3px; opacity: .67; }
+.js-lens-header h2 { font-family: Georgia, "Times New Roman", serif; font-size: 23px; letter-spacing: -.05em; line-height: 1; margin: 0; }
+
+.js-lens-icon-button, .js-lens-text-button, .js-lens-chip, .js-lens-toggle {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.js-lens-icon-button { background: transparent; color: var(--lens-paper); font: 300 26px/20px Georgia, serif; padding: 0 3px; }
+.js-lens-status { color: var(--lens-muted); font-size: 11px; line-height: 1.35; margin: 0; padding: 10px 15px 8px; }
+.js-lens-status.is-paused { color: var(--lens-coral-deep); font-weight: 700; }
+
+.js-lens-native { align-items: center; background: #f2efe6; border-block: 1px solid var(--lens-rule); display: flex; gap: 8px; justify-content: space-between; padding: 8px 15px; }
+.js-lens-native span { color: var(--lens-ink); font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.js-lens-native small { color: var(--lens-muted); font-size: 10px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.js-lens-fields { max-height: min(58vh, 530px); overflow-y: auto; padding: 10px 15px 12px; }
+.js-lens-field { display: block; margin: 0 0 13px; }
+.js-lens-label { color: var(--lens-ink); display: block; font-size: 11px; font-weight: 750; margin-bottom: 6px; }
+.js-lens-input { background: #fff; border: 1px solid var(--lens-rule); border-radius: 3px; color: var(--lens-ink); font-size: 12px; outline: none; padding: 8px 9px; width: 100%; }
+.js-lens-input:focus { border-color: var(--lens-coral); box-shadow: 2px 2px 0 rgba(232, 93, 54, .18); }
+
+.js-lens-toggle-grid { display: grid; gap: 5px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.js-lens-size-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.js-lens-toggle { background: transparent; border: 1px solid var(--lens-rule); border-radius: 2px; color: var(--lens-muted); font-size: 10px; min-height: 29px; padding: 5px 4px; transition: background 160ms ease, border-color 160ms ease, color 160ms ease; }
+.js-lens-toggle:hover { border-color: var(--lens-ink); color: var(--lens-ink); }
+.js-lens-toggle.is-selected { background: var(--lens-ink); border-color: var(--lens-ink); color: var(--lens-paper); }
+
+.js-lens-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 5px; }
+.js-lens-chip { align-items: center; background: var(--lens-mint); border: 1px solid #96c9a5; border-radius: 99px; color: var(--lens-ink); display: inline-flex; font-size: 10px; gap: 5px; padding: 4px 6px 4px 8px; }
+.js-lens-chip b { font-size: 14px; font-weight: 400; line-height: 9px; }
+
+.js-lens-footer { align-items: center; background: #f8f6f0; border-top: 1px solid var(--lens-rule); display: flex; flex-wrap: wrap; font-size: 10px; gap: 8px; justify-content: space-between; padding: 10px 15px; }
+.js-lens-footer strong { color: var(--lens-muted); font-size: 10px; }
+.js-lens-footer div { display: flex; gap: 9px; }
+.js-lens-text-button { background: transparent; color: var(--lens-coral-deep); font-size: 10px; font-weight: 800; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
+.js-lens-text-button:hover { color: var(--lens-ink); }
+
+.js-lens-hidden { display: none !important; }
+.js-lens-card-badge { background: var(--lens-ink); border-radius: 2px; color: var(--lens-paper); font-family: "Avenir Next", Avenir, sans-serif; font-size: 10px; font-weight: 700; letter-spacing: .01em; line-height: 1.2; margin: 0 0 5px; padding: 5px 8px; width: fit-content; }
+[data-js-lens-state="unknown"] .js-lens-card-badge { background: #6d5c31; }
+
+@media (max-width: 700px) {
+  #js-lens-root { right: 9px; top: auto; bottom: 9px; width: min(350px, calc(100vw - 18px)); }
+  .js-lens-fields { max-height: 45vh; }
+}
+
+@media (prefers-reduced-motion: reduce) { .js-lens-toggle { transition: none; } }

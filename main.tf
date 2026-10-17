@@ -241,6 +241,10 @@ resource "aws_iam_role_policy" "app_policy" {
           aws_dynamodb_table.searches.arn,
           aws_dynamodb_table.profiles.arn,
           aws_dynamodb_table.jobs.arn,
+          # Querying a global secondary index requires the index ARN as well as
+          # the table ARN. The Jobs queue uses this index for newest-first
+          # pagination and the scraper uses it to deduplicate saved postings.
+          "${aws_dynamodb_table.jobs.arn}/index/*",
           aws_dynamodb_table.telegram_codes.arn,
           aws_dynamodb_table.interviews.arn,
           aws_dynamodb_table.resumes.arn,

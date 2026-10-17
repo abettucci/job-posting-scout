@@ -13,6 +13,8 @@ post-examples/
 # Node
 frontend/node_modules/
 frontend/.next/
+frontend/.vercel/
+frontend/tsconfig.tsbuildinfo
 
 # AWS
 .aws-sam/

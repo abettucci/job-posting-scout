@@ -123,6 +123,14 @@ export const api = {
       body: JSON.stringify({ job_id: jobId, filter_override: filterOverride }),
     }),
 
+  getLinkedInSessionStatus: () =>
+    req<{ blocked_until: string | null; needs_reconnect: boolean }>("/linkedin/session-status"),
+  updateLinkedInSession: (liAt: string) =>
+    req<{ updated: boolean }>("/linkedin/session", {
+      method: "PUT",
+      body: JSON.stringify({ li_at: liAt }),
+    }),
+
   // Conversational discovery
   queryJobAssistant: (messages: JobAssistantMessage[]) =>
     req<JobAssistantResponse>("/job-assistant/query", { method: "POST", body: JSON.stringify({ messages }) }),
