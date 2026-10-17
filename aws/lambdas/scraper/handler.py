@@ -552,7 +552,10 @@ async def _refresh_eligibility(user_id: str):
     while True:
         items, last_key = db.get_user_jobs(
             user_id=user_id, min_score=0, limit=100, last_key=last_key,
-            applied=False, dismissed=False, deal_breaker=False,
+            # Reclassify dismissed rows too, while preserving their status: a
+            # restored historical false positive must not silently return to
+            # Jobs just because it was dismissed when preferences changed.
+            applied=False, deal_breaker=False,
         )
         jobs.extend(items)
         if not last_key:
