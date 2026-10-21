@@ -25,7 +25,7 @@ Each user configures their own searches and candidate profile (must-have skills,
 | Type | Sources | How it works |
 |---|---|---|
 | LinkedIn (specific URL) | LinkedIn | Playwright scrapes a saved search URL you paste yourself — full control over LinkedIn's own filters (time posted, boolean keywords, etc.) |
-| Multi-board (profile search) | LinkedIn + RemoteOK + Working Nomads + Remotive + Arbeitnow + CompuJobs + OnlineJobs.ph + Y Combinator + FreeHire + Wellfound + SimplyHired | One search — job title, seniority, location — fanned out across every global source: a LinkedIn URL is auto-built (seniority maps to LinkedIn's native `f_E` experience-level filter), and the job title is used as the keyword filter on the other boards. YC contributes public Buenos Aires and worldwide-remote listings. |
+| Multi-board (profile search) | LinkedIn + RemoteOK + Working Nomads + Remotive + Arbeitnow + CompuJobs + OnlineJobs.ph + Y Combinator + FreeHire + Hashtag Web3 + Wellfound + SimplyHired | One search — job title, seniority, location — fanned out across every global source: a LinkedIn URL is auto-built (seniority maps to LinkedIn's native `f_E` experience-level filter), and the job title is used as the keyword filter on the other boards. YC contributes public Buenos Aires and worldwide-remote listings. |
 | Public board (keyword search) | JustJoin.IT, Dixcover Hub | Direct, opt-in sources with public listings. They are not fanned into Multi-board because their remote roles are frequently country/region-specific. |
 | ATS (per-company) | Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Workday, Deel | Public API or public careers page per company, filtered by keywords/location |
 
@@ -47,7 +47,7 @@ The scraper reads ordinary public pages or documented/public feeds only. It does
 | Layer | Tech |
 |---|---|
 | Scraper | Python · Playwright · Chromium |
-| Scoring | Anthropic Claude Haiku (`claude-haiku-4-5`) |
+| AI features | Anthropic Claude Haiku 5.5 (`claude-haiku-5-5`) for scoring, resume tools, cover letters, and interview assistance |
 | API | FastAPI · Mangum · AWS Lambda |
 | Bot | Telegram webhook · AWS Lambda |
 | Storage | DynamoDB (6 tables) |
@@ -186,7 +186,20 @@ npx vercel --prod
 Open the frontend URL, sign up, then go to **Settings** to:
 1. Configure your candidate profile (must-have, nice-to-have, deal-breakers)
 2. Link your Telegram account using the 6-digit code flow
-3. Add your LinkedIn search URLs in **Dashboard**
+3. Optionally enable WhatsApp alerts and add your international phone number
+4. Add your LinkedIn search URLs in **Dashboard**
+
+### WhatsApp job alerts
+
+WhatsApp delivery uses the private WhatsApp Web sidecar's `POST /send` endpoint. Add
+`WAWEB_SIDECAR_URL` and `WAWEB_SHARED_SECRET` to the existing AWS Secrets Manager
+JSON secret referenced by `SECRETS_NAME` (by default `linkedin-job-scout/prod`).
+Keep the shared secret server-side; do not add it to Vercel or frontend environment
+variables. Then deploy the scraper image and enable WhatsApp in **Settings → New job
+notifications**, entering the phone with its country code (for example `+54911…`).
+Telegram remains enabled by default for existing profiles; each channel can be toggled
+independently. Only new jobs that pass the configured filters and score threshold are
+sent.
 
 ## Makefile reference
 

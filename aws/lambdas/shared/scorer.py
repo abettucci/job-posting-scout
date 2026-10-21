@@ -11,6 +11,7 @@ from anthropic import Anthropic
 import requests
 
 logger = logging.getLogger(__name__)
+_CLAUDE_MODEL = "claude-haiku-5-5"
 
 _SYSTEM = """You are a recruiter assistant. Given a candidate profile and a job description,
 score how well the job matches the candidate. Respond ONLY with valid JSON, no markdown, no explanation."""
@@ -187,7 +188,7 @@ class ScoringRouter:
         if self._anthropic:
             try:
                 response = self._anthropic.messages.create(
-                    model="claude-haiku-4-5-20251001",
+                    model=_CLAUDE_MODEL,
                     max_tokens=1024,
                     system=_SYSTEM,
                     messages=[{"role": "user", "content": prompt}],
@@ -220,7 +221,7 @@ class ScoringRouter:
         if self._anthropic:
             try:
                 response = self._anthropic.messages.create(
-                    model="claude-haiku-4-5-20251001",
+                    model=_CLAUDE_MODEL,
                     max_tokens=max_tokens,
                     system=system,
                     messages=[{"role": "user", "content": prompt}],

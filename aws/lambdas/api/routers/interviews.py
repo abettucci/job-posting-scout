@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 
 _VALID_STAGES = {"applied", "phone", "technical", "onsite", "offer", "accepted", "rejected", "withdrawn"}
+_CLAUDE_MODEL = "claude-haiku-5-5"
 
 _FOLLOWUP_SYSTEM = """You draft a short, professional follow-up message for a job application that has gone quiet.
 You receive the tracked application's company, role, current stage, scheduled date (if any), and free-text notes.
@@ -33,7 +34,7 @@ def _draft_followup_with_claude(client: Anthropic, interview: dict) -> dict:
         f"Notes: {interview.get('notes') or 'none'}"
     )
     resp = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model=_CLAUDE_MODEL,
         max_tokens=512,
         system=_FOLLOWUP_SYSTEM,
         messages=[{"role": "user", "content": context}],

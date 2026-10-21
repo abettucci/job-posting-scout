@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, KeyboardEvent } from "react";
-import { api, Profile, type ResumeSkills, type Seniority, type SeniorityLevel } from "@/lib/api";
+import { api, Profile, type ResumeSkills, type SeniorityLevel } from "@/lib/api";
 
 const SENIORITY_OPTIONS: { id: SeniorityLevel; label: string }[] = [
   { id: "internship", label: "Internship" },
@@ -79,6 +79,7 @@ function TagList({ label, description, items, onChange, color = "blue" }: TagLis
 interface Props {
   initial: Profile;
   resumeSkills: ResumeSkills | null;
+  telegramLinked: boolean;
   onSaved: () => void;
 }
 
@@ -125,7 +126,7 @@ function ResumeSkillsSummary({ skills }: { skills: ResumeSkills | null }) {
   );
 }
 
-export default function ProfileEditor({ initial, resumeSkills, onSaved }: Props) {
+export default function ProfileEditor({ initial, resumeSkills, telegramLinked, onSaved }: Props) {
   const [profile, setProfile] = useState<Profile>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -133,7 +134,7 @@ export default function ProfileEditor({ initial, resumeSkills, onSaved }: Props)
   const [refreshingMatches, setRefreshingMatches] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState("");
 
-  const set = (key: keyof Profile) => (val: string[] | number | Seniority | null) =>
+  const set = (key: keyof Profile) => (val: string[] | number | string | boolean | null) =>
     setProfile((p) => ({ ...p, [key]: val }));
 
   const toggleSeniority = (level: SeniorityLevel) => {
@@ -270,10 +271,63 @@ export default function ProfileEditor({ initial, resumeSkills, onSaved }: Props)
         color="blue"
       />
 
+      <fieldset className="space-y-3 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+        <legend className="label px-1">New job notifications</legend>
+        <p className="text-xs text-slate-500">
+          Choose where to receive new jobs that pass your filters and score threshold.
+        </p>
+        <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={profile.notify_telegram}
+            onChange={(event) => set("notify_telegram")(event.target.checked)}
+            className="mt-0.5 accent-brand"
+          />
+          <span>
+            Telegram
+            <span className="block text-xs text-slate-500">
+              {telegramLinked ? "Send qualifying new jobs to your linked bot." : "Link Telegram above to receive job alerts there."}
+            </span>
+          </span>
+        </label>
+        <div className="space-y-2">
+          <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={profile.notify_whatsapp}
+              onChange={(event) => set("notify_whatsapp")(event.target.checked)}
+              className="mt-0.5 accent-brand"
+            />
+            <span>
+              WhatsApp
+              <span className="block text-xs text-slate-500">
+                Requires the private WhatsApp Web sidecar to be configured on the server.
+              </span>
+            </span>
+          </label>
+          {profile.notify_whatsapp && (
+            <div className="pl-6">
+              <label className="label" htmlFor="whatsapp-phone">WhatsApp phone number</label>
+              <input
+                id="whatsapp-phone"
+                type="tel"
+                autoComplete="tel"
+                inputMode="tel"
+                value={profile.whatsapp_phone}
+                onChange={(event) => set("whatsapp_phone")(event.target.value)}
+                placeholder="+54911..."
+                className="input max-w-sm"
+              />
+              <p className="mt-1 text-xs text-slate-500">Include the country code, for example +54 for Argentina.</p>
+            </div>
+          )}
+        </div>
+      </fieldset>
+
       <div>
         <label className="label">Score Threshold</label>
         <p className="text-xs text-slate-500 mb-2">
-          Only send Telegram notifications for jobs scoring above this.
+          Only send enabled channel notifications for new jobs scoring at least this high.
         </p>
         <div className="flex items-center gap-3">
           <input

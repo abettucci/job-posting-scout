@@ -250,6 +250,7 @@ export type SearchSource =
   | "onlinejobs"
   | "yc"
   | "freehire"
+  | "hashtagweb3"
   | "wellfound"
   | "simplyhired"
   | "justjoin"
@@ -329,6 +330,9 @@ export interface Profile {
   // is filtered before scoring and notification.
   max_required_years: number | null;
   eligible_regions: string[];
+  notify_telegram: boolean;
+  notify_whatsapp: boolean;
+  whatsapp_phone: string;
 }
 
 export type RegionScope = "worldwide" | "latam" | "restricted";

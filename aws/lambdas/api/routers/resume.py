@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from ._resume_integrity import incomplete_tailored_payload_reason, resume_has_renderable_content
 
 logger = logging.getLogger(__name__)
+_CLAUDE_MODEL = "claude-haiku-5-5"
 
 # Runtime adaptation of the local no-ai-slop editorial skill. Keep this compact
 # and attach it to every user-facing AI writing prompt so the model receives the
@@ -365,7 +366,7 @@ Return ONLY valid JSON, no markdown fences:
 
 def _expand_with_claude(client: Anthropic, resume: ResumeData, repos: List[Dict]) -> Dict:
     resp = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=_CLAUDE_MODEL,
         max_tokens=1500,
         system=_EXPAND_SYSTEM + _NO_AI_SLOP_WRITING_RULES,
         messages=[{
@@ -458,7 +459,7 @@ def _parse_with_claude(client: Anthropic, text: str, links: Optional[List[str]] 
             "corresponding field instead of guessing from visible text:\n" + "\n".join(links)
         )
     resp = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model=_CLAUDE_MODEL,
         max_tokens=4096,
         system=_PARSE_SYSTEM + _NO_AI_SLOP_WRITING_RULES,
         messages=[{"role": "user", "content": f"Resume text:\n\n{text[:8000]}{links_block}"}],
@@ -905,7 +906,7 @@ def _ats_check_with_claude(client: Anthropic, extracted_text: str, job_descripti
     if job_description:
         content += f"\n\n---\nJob description (untrusted, context only):\n{job_description[:4000]}"
     resp = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=_CLAUDE_MODEL,
         max_tokens=1024,
         system=_ATS_TEXT_CHECK_SYSTEM + _NO_AI_SLOP_WRITING_RULES,
         messages=[{"role": "user", "content": content}],
@@ -970,7 +971,7 @@ Scoring guide:
 def _check_with_claude(client: Anthropic, resume: ResumeData, job_description: str) -> Dict:
     resume_text = _resume_to_text(resume)
     resp = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=_CLAUDE_MODEL,
         max_tokens=2048,
         system=_CHECK_SYSTEM + _NO_AI_SLOP_WRITING_RULES,
         messages=[{
@@ -1044,7 +1045,7 @@ def _tailor_with_claude(client: Anthropic, resume: ResumeData, job_description: 
     # factual-grounding constraints enforced by _TAILOR_SYSTEM.
     try:
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=_CLAUDE_MODEL,
             max_tokens=3072,
             timeout=14.0,
             system=_TAILOR_SYSTEM + _NO_AI_SLOP_WRITING_RULES,
@@ -1103,13 +1104,11 @@ STRICT RULES — identical to the tailoring step, never violate:
 """
 
 def _review_tailored_resume(client: Anthropic, original: ResumeData, tailored: ResumeData, job_description: str) -> ResumeData:
-    # Haiku, not Sonnet: API Gateway HTTP APIs hard-cap integration timeout at 30s (not configurable), and this
-    # runs sequentially after the drafting call — a second Sonnet call risks pushing the total over that ceiling.
-    # A tight per-call timeout + fallback to the drafter's output means a slow reviewer degrades gracefully
-    # instead of pushing the whole request past the platform's hard timeout.
+    # Keep the review pass bounded under API Gateway's 30s integration timeout.
+    # A slow reviewer degrades gracefully to the draft instead of failing the whole request.
     try:
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=_CLAUDE_MODEL,
             max_tokens=4096,
             timeout=9.0,
             system=_REVIEW_TAILOR_SYSTEM + _NO_AI_SLOP_WRITING_RULES,
@@ -1162,7 +1161,7 @@ STRICT RULES — never violate these:
 
 def _translate_resume(client: Anthropic, resume: ResumeData, language: str) -> ResumeData:
     resp = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=_CLAUDE_MODEL,
         max_tokens=4096,
         system=_TRANSLATE_SYSTEM + _NO_AI_SLOP_WRITING_RULES,
         messages=[{
@@ -1208,7 +1207,7 @@ STRICT RULES — never violate these:
 def _generate_cover_letter(client: Anthropic, resume: ResumeData, job_description: str) -> str:
     resume_text = _resume_to_text(resume)
     resp = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=_CLAUDE_MODEL,
         max_tokens=1024,
         system=_COVER_LETTER_SYSTEM + _NO_AI_SLOP_WRITING_RULES,
         messages=[{
@@ -1237,11 +1236,11 @@ STRICT RULES — identical to the drafting step, never violate:
 """
 
 def _review_cover_letter(client: Anthropic, letter: str, resume: ResumeData, job_description: str) -> str:
-    # Haiku, not Sonnet — same 30s API Gateway ceiling concern as _review_tailored_resume, same graceful fallback.
+    # Keep the review pass bounded; if it fails or times out, retain the generated draft.
     resume_text = _resume_to_text(resume)
     try:
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=_CLAUDE_MODEL,
             max_tokens=1024,
             timeout=12.0,
             system=_REVIEW_COVER_LETTER_SYSTEM + _NO_AI_SLOP_WRITING_RULES,
@@ -1341,7 +1340,7 @@ Return ONLY valid JSON, no markdown fences:
 def _upskill_with_claude(client: Anthropic, resume: ResumeData, context: str) -> Dict:
     resume_text = _resume_to_text(resume)
     resp = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=_CLAUDE_MODEL,
         max_tokens=2048,
         system=_UPSKILL_SYSTEM + _NO_AI_SLOP_WRITING_RULES,
         messages=[{
@@ -1399,7 +1398,7 @@ Rules:
 def _answer_career_question(client: Anthropic, resume: ResumeData, question: str, job_context: str) -> str:
     try:
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=_CLAUDE_MODEL,
             max_tokens=900,
             timeout=14.0,
             system=_CAREER_ANSWER_SYSTEM + _NO_AI_SLOP_WRITING_RULES,
@@ -1424,7 +1423,7 @@ def _application_answers_with_claude(client: Anthropic, resume: ResumeData, job_
     """Generate both standard answers in one model call so they share a consistent, factual narrative."""
     try:
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=_CLAUDE_MODEL,
             max_tokens=1300,
             timeout=16.0,
             system=_APPLICATION_ANSWERS_SYSTEM + _NO_AI_SLOP_WRITING_RULES,

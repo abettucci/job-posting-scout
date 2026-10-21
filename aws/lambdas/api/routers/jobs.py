@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 _GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search"
 _GOOGLE_NEWS_HOST = "news.google.com"
+_CLAUDE_MODEL = "claude-haiku-5-5"
 _MAX_RSS_BYTES = 400_000
 _BRIEF_CACHE_TTL = timedelta(days=7)
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -231,7 +232,7 @@ def _generate_interview_brief(client: Anthropic, job: Dict[str, Any], sources: L
     }
     try:
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=_CLAUDE_MODEL,
             max_tokens=1800,
             timeout=12.0,
             system=_INTERVIEW_BRIEF_SYSTEM + _NO_AI_SLOP_WRITING_RULES,

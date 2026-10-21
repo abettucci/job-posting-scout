@@ -124,6 +124,12 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
     help: "Structured global tech jobs from a public feed. Requires keywords below and favors remote roles.",
   },
   {
+    id: "hashtagweb3",
+    label: "Hashtag Web3",
+    placeholder: "",
+    help: "Public Web3 and crypto-job index. Reads its public listing and job-detail pages, then opens the original company application URL. Included in Multi-board.",
+  },
+  {
     id: "wellfound",
     label: "Wellfound",
     placeholder: "",
@@ -149,7 +155,7 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
   },
 ];
 
-const AGGREGATOR_SOURCES: SearchSource[] = ["remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire", "wellfound", "simplyhired", "justjoin", "dixcover"];
+const AGGREGATOR_SOURCES: SearchSource[] = ["remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire", "hashtagweb3", "wellfound", "simplyhired", "justjoin", "dixcover"];
 
 export default function SearchForm({ onCreated, onCancel }: Props) {
   const [source, setSource] = useState<SearchSource>("linkedin");

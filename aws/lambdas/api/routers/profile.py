@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, List, Optional
 
 from fastapi import APIRouter, Depends
@@ -25,6 +26,9 @@ class ProfileUpdate(BaseModel):
     # experience from free-form CV dates. Zero clears the cap.
     max_required_years: Optional[int] = None
     eligible_regions: Optional[List[str]] = None  # free text, e.g. ["Argentina", "LATAM", "Worldwide"]
+    notify_telegram: Optional[bool] = None
+    notify_whatsapp: Optional[bool] = None
+    whatsapp_phone: Optional[str] = None
 
     @field_validator("seniority")
     @classmethod
@@ -53,6 +57,21 @@ class ProfileUpdate(BaseModel):
             raise ValueError("max_required_years must be between 0 and 40")
         return value
 
+    @field_validator("whatsapp_phone")
+    @classmethod
+    def validate_whatsapp_phone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            return ""
+        if not re.fullmatch(r"\+?[\d\s().-]+", value):
+            raise ValueError("whatsapp_phone must be an international phone number")
+        digits = re.sub(r"\D", "", value)
+        if not 8 <= len(digits) <= 15:
+            raise ValueError("whatsapp_phone must include country code and contain 8 to 15 digits")
+        return digits
+
 
 def make_router(db: Any, get_current_user: Callable) -> APIRouter:
     router = APIRouter(prefix="/profile", tags=["profile"])
@@ -66,6 +85,9 @@ def make_router(db: Any, get_current_user: Callable) -> APIRouter:
         if "target_seniorities" not in profile:
             profile["target_seniorities"] = [profile["seniority"]] if profile.get("seniority") else []
         profile.setdefault("max_required_years", None)
+        profile.setdefault("notify_telegram", True)
+        profile.setdefault("notify_whatsapp", False)
+        profile.setdefault("whatsapp_phone", "")
         profile["score_threshold"] = user.get("score_threshold", 75)
         return profile
 

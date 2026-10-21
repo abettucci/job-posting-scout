@@ -19,6 +19,9 @@ const EMPTY_PROFILE: Profile = {
   target_seniorities: [],
   max_required_years: null,
   eligible_regions: [],
+  notify_telegram: true,
+  notify_whatsapp: false,
+  whatsapp_phone: "",
 };
 
 export default function SettingsPage() {
@@ -66,6 +69,7 @@ export default function SettingsPage() {
           <ProfileEditor
             initial={profile ?? EMPTY_PROFILE}
             resumeSkills={resumeSkills}
+            telegramLinked={Boolean(user.telegram_chat_id)}
             onSaved={() => { refresh(); }}
           />
         )}

@@ -37,6 +37,7 @@ for _p in [_SHARED_LAMBDA, _SHARED_LOCAL]:
 from config import get_config
 from db import DynamoDBClient
 from telegram import TelegramClient, format_job_notification
+from whatsapp_web import WhatsAppWebClient, format_job_notification as format_whatsapp_job_notification
 from scorer import ScoringRouter, ScoringUnavailableError, score_job, with_resume_skills
 from seniority import (
     SENIORITY_LEVELS,
@@ -66,6 +67,7 @@ _SOURCE_LABELS = {
     "onlinejobs": "OnlineJobs.ph",
     "yc": "Y Combinator",
     "freehire": "FreeHire",
+    "hashtagweb3": "Hashtag Web3",
     "wellfound": "Wellfound",
     "simplyhired": "SimplyHired",
     "justjoin": "JustJoin.IT",
@@ -152,6 +154,37 @@ def _should_notify(job: Dict, result: Dict, threshold: int) -> bool:
     )
 
 
+def _send_job_notifications(
+    user: Dict,
+    profile: Dict,
+    job: Dict,
+    result: Dict,
+    tg: TelegramClient,
+    whatsapp: WhatsAppWebClient,
+) -> bool:
+    """Send a qualifying new-job notification through the user's enabled channels."""
+    delivered = False
+    if profile.get("notify_telegram", True) and user.get("telegram_chat_id"):
+        try:
+            delivered = bool(
+                tg.send_message(
+                    int(user["telegram_chat_id"]), format_job_notification(job, result)
+                )
+            ) or delivered
+        except Exception as exc:
+            logger.warning("Telegram job notification failed (%s)", type(exc).__name__)
+
+    if profile.get("notify_whatsapp", False):
+        phone = profile.get("whatsapp_phone")
+        if phone:
+            delivered = whatsapp.send_message(
+                str(phone), format_whatsapp_job_notification(job, result)
+            ) or delivered
+        else:
+            logger.warning("WhatsApp notifications enabled without a configured phone number")
+    return delivered
+
+
 def _scoring_router(cfg) -> ScoringRouter:
     return ScoringRouter(
         anthropic_api_key=cfg.anthropic_api_key,
@@ -184,7 +217,10 @@ async def _fetch_ats(source: str, slug: str, label: str, keywords: str, location
     else:
         logger.warning(f"Unknown ATS source: {source}")
         return []
-    return await fetch_jobs(slug=slug, company_name=label, keywords=keywords, location_filter=location_filter)
+    from providers.contract import fetch_with_contract
+    return await fetch_with_contract(
+        source, fetch_jobs, slug=slug, company_name=label, keywords=keywords, location_filter=location_filter,
+    )
 
 
 # ── Aggregator provider dispatch ──────────────────────────────────────────────
@@ -194,14 +230,14 @@ async def _fetch_ats(source: str, slug: str, label: str, keywords: str, location
 
 _AGGREGATOR_SOURCES = {
     "remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire",
-    "wellfound", "simplyhired", "justjoin", "dixcover",
+    "hashtagweb3", "wellfound", "simplyhired", "justjoin", "dixcover",
 }
 # These have broad enough global coverage for profile-shaped searches. The two
 # regional sources stay selectable, but are intentionally opt-in so a global
 # remote search does not silently collect country-restricted postings.
 _MULTI_BOARD_AGGREGATOR_SOURCES = {
     "remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire",
-    "wellfound", "simplyhired",
+    "hashtagweb3", "wellfound", "simplyhired",
 }
 
 
@@ -223,6 +259,8 @@ async def _fetch_aggregator(source: str, keywords: str, location_filter: str) ->
         from providers.yc import fetch_jobs
     elif source == "freehire":
         from providers.freehire import fetch_jobs
+    elif source == "hashtagweb3":
+        from providers.hashtagweb3 import fetch_jobs
     elif source == "wellfound":
         from providers.wellfound import fetch_jobs
     elif source == "simplyhired":
@@ -234,7 +272,8 @@ async def _fetch_aggregator(source: str, keywords: str, location_filter: str) ->
     else:
         logger.warning(f"Unknown aggregator source: {source}")
         return []
-    return await fetch_jobs(keywords=keywords, location_filter=location_filter)
+    from providers.contract import fetch_with_contract
+    return await fetch_with_contract(source, fetch_jobs, keywords=keywords, location_filter=location_filter)
 
 
 # ── Multi-board fan-out ───────────────────────────────────────────────────────
@@ -601,6 +640,7 @@ async def _main():
         region=cfg.region,
     )
     tg = TelegramClient(cfg.telegram_bot_token)
+    whatsapp = WhatsAppWebClient(cfg.waweb_sidecar_url, cfg.waweb_shared_secret)
     scorer = _scoring_router(cfg)
 
     users = db.get_all_linked_users()
@@ -654,7 +694,7 @@ async def _main():
     # Retry only jobs that were explicitly deferred after all configured
     # providers failed. They were saved but never treated as a SKIP, so a quota
     # outage cannot silently lose an otherwise good opportunity.
-    await _retry_pending_scoring(db, users, scorer, tg)
+    await _retry_pending_scoring(db, users, scorer, tg, whatsapp)
 
     # ── Build per-source search maps ──────────────────────────────────────────
 
@@ -880,11 +920,9 @@ async def _main():
         should_notify = _should_notify(job, result, threshold)
 
         if should_notify:
-            chat_id = user.get("telegram_chat_id")
-            if chat_id:
-                if tg.send_message(int(chat_id), format_job_notification(job, result)):
-                    total_notified += 1
-                    record(user, source, "notified")
+            if _send_job_notifications(user, profile, job, result, tg, whatsapp):
+                total_notified += 1
+                record(user, source, "notified")
 
         _save_scored_job(db, user_id, job, result, notified=should_notify)
         record(user, source, "added")
@@ -1120,7 +1158,11 @@ def _notify_scoring_recovery(db: DynamoDBClient, tg: TelegramClient, user: Dict)
 
 
 async def _retry_pending_scoring(
-    db: DynamoDBClient, users: List[Dict], scorer: ScoringRouter, tg: TelegramClient
+    db: DynamoDBClient,
+    users: List[Dict],
+    scorer: ScoringRouter,
+    tg: TelegramClient,
+    whatsapp: WhatsAppWebClient,
 ):
     """Retry deferred jobs before fetching new ones; stop on a global outage."""
     retried = 0
@@ -1164,8 +1206,8 @@ async def _retry_pending_scoring(
             _notify_scoring_recovery(db, tg, user)
             threshold = int(user.get("score_threshold", 75))
             should_notify = _should_notify(job, result, threshold)
-            if should_notify and user.get("telegram_chat_id"):
-                tg.send_message(int(user["telegram_chat_id"]), format_job_notification(job, result))
+            if should_notify:
+                _send_job_notifications(user, profile, job, result, tg, whatsapp)
             _save_scored_job(db, user["user_id"], job, result, notified=should_notify)
             retried += 1
     if retried:
