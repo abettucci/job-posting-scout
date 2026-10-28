@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable, Optional
 
-from anthropic import Anthropic
+from ai_router import build_ai_client
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 
@@ -25,7 +25,7 @@ Return ONLY valid JSON, no markdown fences:
 {"subject": "...", "body": "..."}
 """
 
-def _draft_followup_with_claude(client: Anthropic, interview: dict) -> dict:
+def _draft_followup_with_claude(client: Any, interview: dict) -> dict:
     context = (
         f"Company: {interview.get('company', '')}\n"
         f"Role: {interview.get('role', '')}\n"
@@ -86,7 +86,7 @@ class InterviewPatch(BaseModel):
 
 def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
     router = APIRouter(prefix="/interviews", tags=["interviews"])
-    _anthropic = Anthropic(api_key=cfg.anthropic_api_key)
+    _anthropic = build_ai_client(cfg)
 
     @router.get("")
     def list_interviews(user=Depends(get_current_user)):

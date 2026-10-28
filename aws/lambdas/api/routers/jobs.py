@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List
 from urllib.parse import urlparse
 
 import httpx
-from anthropic import Anthropic
+from ai_router import build_ai_client
 from defusedxml import ElementTree as SafeElementTree
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -222,7 +222,7 @@ def _save_brief_to_history(db: Any, user_id: str, job: Dict[str, Any], brief: Di
         logger.error("Could not persist company brief to career history")
 
 
-def _generate_interview_brief(client: Anthropic, job: Dict[str, Any], sources: List[Dict[str, str]]) -> Dict[str, Any]:
+def _generate_interview_brief(client: Any, job: Dict[str, Any], sources: List[Dict[str, str]]) -> Dict[str, Any]:
     job_context = {
         "company": str(job.get("company") or ""),
         "title": str(job.get("title") or ""),
@@ -262,9 +262,8 @@ def _generate_interview_brief(client: Anthropic, job: Dict[str, Any], sources: L
 
 def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
     router = APIRouter(prefix="/jobs", tags=["jobs"])
-    # The HTTP API has a 30-second ceiling. Disable SDK retries so the 12-second
-    # generation deadline stays bounded when the upstream provider is slow.
-    anthropic = Anthropic(api_key=cfg.anthropic_api_key, max_retries=0)
+    # Keep multi-provider generation bounded by the common router deadline.
+    anthropic = build_ai_client(cfg)
 
     @router.get("")
     def list_jobs(

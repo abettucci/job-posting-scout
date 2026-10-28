@@ -108,7 +108,15 @@ def _matching_jobs(jobs: List[dict], intent: dict, profile: dict) -> List[dict]:
 
 def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
     router = APIRouter(prefix="/job-assistant", tags=["job-assistant"])
-    ai = ScoringRouter(cfg.anthropic_api_key, cfg.omniroute_base_url, cfg.omniroute_api_key, cfg.omniroute_model)
+    ai = ScoringRouter(
+        anthropic_api_key=cfg.anthropic_api_key,
+        fallback_base_url=cfg.omniroute_base_url,
+        fallback_api_key=cfg.omniroute_api_key,
+        fallback_model=cfg.omniroute_model,
+        gemini_api_key=cfg.gemini_api_key,
+        groq_api_key=cfg.groq_api_key,
+        openrouter_api_key=cfg.openrouter_api_key,
+    )
 
     @router.post("/query")
     def query(body: AssistantQuery, user=Depends(get_current_user)):

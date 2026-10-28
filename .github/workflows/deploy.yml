@@ -5,13 +5,6 @@ on:
     branches: [main]
   workflow_dispatch:
 
-env:
-  TF_VAR_aws_region:              ${{ secrets.AWS_REGION }}
-  TF_VAR_aws_account_id:          ${{ secrets.AWS_ACCOUNT_ID }}
-  TF_VAR_frontend_url:            ${{ secrets.FRONTEND_URL }}
-  TF_VAR_telegram_webhook_secret: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-  # App secrets (API keys, passwords) live in Secrets Manager — not here
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -60,8 +53,57 @@ jobs:
   terraform-deploy:
     needs: [build-and-push]
     runs-on: ubuntu-latest
+    env:
+      TF_VAR_aws_region:              ${{ secrets.AWS_REGION }}
+      TF_VAR_aws_account_id:          ${{ secrets.AWS_ACCOUNT_ID }}
+      TF_VAR_frontend_url:            ${{ secrets.FRONTEND_URL }}
+      TF_VAR_telegram_webhook_secret: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+      TF_VAR_telegram_bot_token:      ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TF_VAR_jwt_secret:              ${{ secrets.JWT_SECRET }}
+      TF_VAR_gemini_api_key:          ${{ secrets.GEMINI_API_KEY }}
+      TF_VAR_groq_api_key:            ${{ secrets.GROQ_API_KEY }}
+      TF_VAR_openrouter_api_key:      ${{ secrets.OPENROUTER_API_KEY }}
+      TF_VAR_anthropic_api_key:       ${{ secrets.ANTHROPIC_API_KEY }}
+      TF_VAR_omniroute_base_url:      ${{ secrets.OMNIROUTE_BASE_URL }}
+      TF_VAR_omniroute_api_key:       ${{ secrets.OMNIROUTE_API_KEY }}
+      TF_VAR_omniroute_model:         ${{ secrets.OMNIROUTE_MODEL }}
+      TF_VAR_linkedin_email:          ${{ secrets.LINKEDIN_EMAIL }}
+      TF_VAR_linkedin_password:       ${{ secrets.LINKEDIN_PASSWORD }}
+      TF_VAR_waweb_sidecar_url:       ${{ secrets.WAWEB_SIDECAR_URL }}
+      TF_VAR_waweb_shared_secret:     ${{ secrets.WAWEB_SHARED_SECRET }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate required application secrets
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_ACCOUNT_ID AWS_REGION \
+                      FRONTEND_URL TELEGRAM_WEBHOOK_SECRET; do
+            if [ -z "${!name}" ]; then
+              echo "Missing GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+          [ -n "$TELEGRAM_BOT_TOKEN" ] || { echo "Missing GitHub Actions secret: TELEGRAM_BOT_TOKEN"; exit 1; }
+          [ -n "$JWT_SECRET" ] || { echo "Missing GitHub Actions secret: JWT_SECRET"; exit 1; }
+          if [ -z "$GEMINI_API_KEY" ] && [ -z "$GROQ_API_KEY" ] && \
+             [ -z "$OPENROUTER_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "Configure at least one AI provider secret (Gemini, Groq, OpenRouter, or Anthropic)."
+            exit 1
+          fi
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -161,13 +203,11 @@ jobs:
         run: terraform apply -auto-approve
 
       - name: Set Telegram Webhook
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
         run: |
           WEBHOOK_URL=$(terraform output -raw telegram_webhook_url)
-          BOT_TOKEN=$(aws secretsmanager get-secret-value \
-            --secret-id "linkedin-job-scout/prod" \
-            --region ${{ secrets.AWS_REGION }} \
-            --query SecretString --output text \
-            | python3 -c "import sys,json; print(json.load(sys.stdin)['TELEGRAM_BOT_TOKEN'])")
-          curl -s "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
+          curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
             -d "url=$WEBHOOK_URL" \
-            -d "secret_token=${{ secrets.TELEGRAM_WEBHOOK_SECRET }}" | python3 -m json.tool
+            -d "secret_token=$TELEGRAM_WEBHOOK_SECRET" | python3 -m json.tool

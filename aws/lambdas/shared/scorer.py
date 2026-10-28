@@ -7,11 +7,9 @@ import logging
 import re
 from typing import Any, Dict, Optional
 
-from anthropic import Anthropic
-import requests
+from ai_router import AIProviderRouter, AIProviderUnavailableError
 
 logger = logging.getLogger(__name__)
-_CLAUDE_MODEL = "claude-haiku-5-5"
 
 _SYSTEM = """You are a recruiter assistant. Given a candidate profile and a job description,
 score how well the job matches the candidate. Respond ONLY with valid JSON, no markdown, no explanation."""
@@ -159,56 +157,56 @@ class ScoringUnavailableError(RuntimeError):
 
 
 class ScoringRouter:
-    """Use the primary scorer first, then an owner-configured compatible fallback.
-
-    The fallback is intentionally opt-in. It does not create accounts, rotate
-    identities, or attempt to bypass any provider's quota or usage policy.
-    """
+    """Use configured free providers first and Haiku only as the final fallback."""
 
     def __init__(
         self,
-        anthropic_api_key: str,
+        anthropic_api_key: str = "",
         fallback_base_url: str = "",
         fallback_api_key: str = "",
         fallback_model: str = "auto",
+        gemini_api_key: str = "",
+        groq_api_key: str = "",
+        openrouter_api_key: str = "",
+        daily_paid_budget_usd: float = 1.0,
+        usage_table_name: str = "",
+        gemini_free_tier_confirmed: bool = False,
     ):
-        self._anthropic = Anthropic(api_key=anthropic_api_key) if anthropic_api_key else None
-        self._fallback_base_url = fallback_base_url.rstrip("/")
-        self._fallback_api_key = fallback_api_key
-        self._fallback_model = fallback_model
+        # Legacy OmniRoute parameters remain accepted for deployment compatibility,
+        # but do not change the requested free-first order.
+        self._ai = AIProviderRouter(
+            gemini_api_key=gemini_api_key,
+            groq_api_key=groq_api_key,
+            openrouter_api_key=openrouter_api_key,
+            anthropic_api_key=anthropic_api_key,
+            daily_paid_budget_usd=daily_paid_budget_usd,
+            usage_table_name=usage_table_name,
+            gemini_free_tier_confirmed=gemini_free_tier_confirmed,
+        )
 
     @property
     def fallback_enabled(self) -> bool:
-        return bool(self._fallback_base_url and self._fallback_api_key)
+        return bool(self._ai._gemini_api_key or self._ai._groq_api_key or self._ai._openrouter_api_key)
 
     def score(self, job: Dict, profile: Dict) -> Dict[str, Any]:
         prompt = _build_prompt(job, profile)
-        errors: list[str] = []
-
-        if self._anthropic:
-            try:
-                response = self._anthropic.messages.create(
-                    model=_CLAUDE_MODEL,
-                    max_tokens=1024,
-                    system=_SYSTEM,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                if response.stop_reason == "max_tokens":
-                    logger.warning("Primary scoring response truncated for %r", job.get("title"))
-                return _normalize_result(_extract_json(response.content[0].text), provider="anthropic")
-            except Exception as exc:
-                errors.append(f"anthropic:{type(exc).__name__}")
-                logger.warning("Primary scorer unavailable for %r: %s", job.get("title"), type(exc).__name__)
-
-        if self.fallback_enabled:
-            try:
-                return self._score_openai_compatible(prompt)
-            except Exception as exc:
-                errors.append(f"fallback:{type(exc).__name__}")
-                logger.warning("Fallback scorer unavailable for %r: %s", job.get("title"), type(exc).__name__)
-
-        detail = ", ".join(errors) if errors else "no scoring provider configured"
-        raise ScoringUnavailableError(detail)
+        try:
+            response = self._ai.messages.create(
+                max_tokens=1024,
+                timeout=18.0,
+                system=_SYSTEM,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            if response.stop_reason == "max_tokens":
+                logger.warning("Scoring response truncated for %r", job.get("title"))
+            return _normalize_result(
+                _extract_json(response.content[0].text),
+                provider=self._ai.last_provider or "unknown",
+            )
+        except Exception as exc:
+            detail = str(exc) if isinstance(exc, AIProviderUnavailableError) else type(exc).__name__
+            logger.warning("Scoring request unavailable: %s", detail)
+            raise ScoringUnavailableError(detail) from None
 
     def complete_json(self, system: str, prompt: str, max_tokens: int = 900) -> Dict[str, Any]:
         """Run a small structured assistant task through the same failover chain.
@@ -217,69 +215,17 @@ class ScoringRouter:
         same graceful provider fallback as the scheduled scraper, without any
         credential rotation or hidden extra provider account.
         """
-        errors: list[str] = []
-        if self._anthropic:
-            try:
-                response = self._anthropic.messages.create(
-                    model=_CLAUDE_MODEL,
-                    max_tokens=max_tokens,
-                    system=system,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                return _extract_json(response.content[0].text)
-            except Exception as exc:
-                errors.append(f"anthropic:{type(exc).__name__}")
-                logger.warning("Primary structured assistant unavailable: %s", type(exc).__name__)
-
-        if self.fallback_enabled:
-            try:
-                endpoint = self._fallback_base_url
-                if not endpoint.endswith("/chat/completions"):
-                    endpoint = f"{endpoint}/chat/completions" if endpoint.endswith("/v1") else f"{endpoint}/v1/chat/completions"
-                response = requests.post(
-                    endpoint,
-                    headers={"Authorization": f"Bearer {self._fallback_api_key}", "Content-Type": "application/json"},
-                    json={"model": self._fallback_model, "max_tokens": max_tokens,
-                          "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]},
-                    timeout=30,
-                )
-                response.raise_for_status()
-                return _extract_json(response.json()["choices"][0]["message"]["content"])
-            except Exception as exc:
-                errors.append(f"fallback:{type(exc).__name__}")
-                logger.warning("Fallback structured assistant unavailable: %s", type(exc).__name__)
-
-        raise ScoringUnavailableError(", ".join(errors) if errors else "no scoring provider configured")
-
-    def _score_openai_compatible(self, prompt: str) -> Dict[str, Any]:
-        # OmniRoute and many self-hosted gateways expose this standard path.
-        endpoint = self._fallback_base_url
-        if not endpoint.endswith("/chat/completions"):
-            endpoint = (
-                f"{endpoint}/chat/completions"
-                if endpoint.endswith("/v1")
-                else f"{endpoint}/v1/chat/completions"
+        try:
+            response = self._ai.messages.create(
+                max_tokens=max_tokens,
+                timeout=18.0,
+                system=system,
+                messages=[{"role": "user", "content": prompt}],
             )
-        response = requests.post(
-            endpoint,
-            headers={
-                "Authorization": f"Bearer {self._fallback_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self._fallback_model,
-                "max_tokens": 1024,
-                "messages": [
-                    {"role": "system", "content": _SYSTEM},
-                    {"role": "user", "content": prompt},
-                ],
-            },
-            timeout=45,
-        )
-        response.raise_for_status()
-        body = response.json()
-        raw = body["choices"][0]["message"]["content"]
-        return _normalize_result(_extract_json(raw), provider="fallback")
+            return _extract_json(response.content[0].text)
+        except Exception as exc:
+            detail = str(exc) if isinstance(exc, AIProviderUnavailableError) else type(exc).__name__
+            raise ScoringUnavailableError(detail) from None
 
 
 def _build_prompt(job: Dict, profile: Dict) -> str:

@@ -12,16 +12,108 @@ provider "aws" {
 # Variables (populated from TF_VAR_* GitHub Secrets)
 # ─────────────────────────────────────────────────────────────────────────────
 
-variable "aws_region"              { default = "us-east-1" }
-variable "aws_account_id"          { sensitive = true }
-variable "project_name"            { default = "linkedin-job-scout" }
-variable "environment"             { default = "prod" }
-variable "image_tag"               { default = "latest" }
-variable "frontend_url"            {}
+variable "aws_region" { default = "us-east-1" }
+variable "aws_account_id" { sensitive = true }
+variable "project_name" { default = "linkedin-job-scout" }
+variable "environment" { default = "prod" }
+variable "image_tag" { default = "latest" }
+variable "frontend_url" {}
 # Webhook validation token — needed as env var on every bot request, low-risk as env var
 variable "telegram_webhook_secret" { sensitive = true }
-# App secrets (API keys, passwords) live in Secrets Manager, not here
-variable "secrets_name"            { default = "linkedin-job-scout/prod" }
+
+# Static application credentials arrive from GitHub Actions Secrets as TF_VAR_*.
+# LinkedIn session cookies remain in Secrets Manager because the app updates them at runtime.
+variable "telegram_bot_token" {
+  type      = string
+  sensitive = true
+}
+
+variable "jwt_secret" {
+  type      = string
+  sensitive = true
+}
+
+variable "gemini_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "groq_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "openrouter_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "anthropic_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "gemini_free_tier_confirmed" {
+  description = "Set true only if the Gemini API project/key is confirmed to use a non-billable free tier."
+  type        = bool
+  default     = false
+}
+
+variable "ai_paid_daily_budget_usd" {
+  description = "Maximum aggregate daily paid-model spend reserved by the app, in USD (UTC day)."
+  type        = number
+  default     = 1.00
+  validation {
+    condition     = var.ai_paid_daily_budget_usd >= 0 && var.ai_paid_daily_budget_usd <= 100
+    error_message = "ai_paid_daily_budget_usd must be between 0 and 100 USD."
+  }
+}
+
+variable "omniroute_base_url" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "omniroute_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "omniroute_model" {
+  type      = string
+  sensitive = true
+  default   = "auto"
+}
+
+variable "linkedin_email" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "linkedin_password" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "waweb_sidecar_url" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "waweb_shared_secret" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
 
 locals {
   prefix   = "${var.project_name}-${var.environment}"
@@ -207,6 +299,22 @@ resource "aws_dynamodb_table" "scrape_runs" {
   }
 }
 
+# Global daily spend guard for paid AI fallbacks. Stores only UTC date and
+# aggregate micro-dollar counters; prompts and personal data are never stored.
+resource "aws_dynamodb_table" "ai_usage" {
+  name         = "${local.prefix}-ai-usage"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "day"
+  attribute {
+    name = "day"
+    type = "S"
+  }
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # IAM
 # ─────────────────────────────────────────────────────────────────────────────
@@ -251,13 +359,14 @@ resource "aws_iam_role_policy" "app_policy" {
           aws_dynamodb_table.cv_history.arn,
           aws_dynamodb_table.company_size_cache.arn,
           aws_dynamodb_table.scrape_runs.arn,
+          aws_dynamodb_table.ai_usage.arn,
         ]
       },
       {
-        # LinkedIn session cookies are stored/loaded at runtime from Secrets Manager
-        Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue", "secretsmanager:CreateSecret"]
-        Resource = "arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:${var.project_name}/*"
+        # Only the mutable LinkedIn session cookie remains in Secrets Manager.
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue", "secretsmanager:CreateSecret"]
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:${var.project_name}/linkedin-cookies*"
       },
       {
         # API Lambda invokes scraper Lambda asynchronously on /scraper/run
@@ -288,25 +397,35 @@ resource "aws_lambda_function" "api" {
   memory_size   = 512
   environment {
     variables = {
-      ENVIRONMENT             = var.environment
-      FRONTEND_URL            = var.frontend_url
-      SECRETS_NAME            = var.secrets_name
-      SCRAPER_FUNCTION_NAME   = aws_lambda_function.scraper.function_name
-      USERS_TABLE             = aws_dynamodb_table.users.name
-      SEARCHES_TABLE          = aws_dynamodb_table.searches.name
-      PROFILES_TABLE          = aws_dynamodb_table.profiles.name
-      JOBS_TABLE              = aws_dynamodb_table.jobs.name
-      TELEGRAM_CODES_TABLE    = aws_dynamodb_table.telegram_codes.name
-      INTERVIEWS_TABLE        = aws_dynamodb_table.interviews.name
-      RESUMES_TABLE           = aws_dynamodb_table.resumes.name
-      CV_HISTORY_TABLE        = aws_dynamodb_table.cv_history.name
-      SCRAPE_RUNS_TABLE       = aws_dynamodb_table.scrape_runs.name
+      ENVIRONMENT                = var.environment
+      FRONTEND_URL               = var.frontend_url
+      JWT_SECRET                 = var.jwt_secret
+      GEMINI_API_KEY             = var.gemini_api_key
+      GROQ_API_KEY               = var.groq_api_key
+      OPENROUTER_API_KEY         = var.openrouter_api_key
+      ANTHROPIC_API_KEY          = var.anthropic_api_key
+      AI_USAGE_TABLE             = aws_dynamodb_table.ai_usage.name
+      AI_PAID_DAILY_BUDGET_USD   = tostring(var.ai_paid_daily_budget_usd)
+      GEMINI_FREE_TIER_CONFIRMED = tostring(var.gemini_free_tier_confirmed)
+      OMNIROUTE_BASE_URL         = var.omniroute_base_url
+      OMNIROUTE_API_KEY          = var.omniroute_api_key
+      OMNIROUTE_MODEL            = var.omniroute_model
+      SCRAPER_FUNCTION_NAME      = aws_lambda_function.scraper.function_name
+      USERS_TABLE                = aws_dynamodb_table.users.name
+      SEARCHES_TABLE             = aws_dynamodb_table.searches.name
+      PROFILES_TABLE             = aws_dynamodb_table.profiles.name
+      JOBS_TABLE                 = aws_dynamodb_table.jobs.name
+      TELEGRAM_CODES_TABLE       = aws_dynamodb_table.telegram_codes.name
+      INTERVIEWS_TABLE           = aws_dynamodb_table.interviews.name
+      RESUMES_TABLE              = aws_dynamodb_table.resumes.name
+      CV_HISTORY_TABLE           = aws_dynamodb_table.cv_history.name
+      SCRAPE_RUNS_TABLE          = aws_dynamodb_table.scrape_runs.name
     }
   }
 }
 
 resource "aws_lambda_function" "scraper" {
-  description   = "Scheduled job scraper — LinkedIn (Playwright) + ATS/aggregator providers, scores new postings with Claude Haiku and notifies via Telegram"
+  description   = "Scheduled job scraper — LinkedIn (Playwright) + ATS/aggregator providers, scores new postings with the AI provider cascade and notifies via Telegram"
   function_name = "${local.prefix}-scraper"
   role          = aws_iam_role.lambda_exec.arn
   package_type  = "Image"
@@ -315,17 +434,31 @@ resource "aws_lambda_function" "scraper" {
   memory_size   = 2048
   environment {
     variables = {
-      ENVIRONMENT              = var.environment
-      SECRETS_NAME             = var.secrets_name
-      USERS_TABLE              = aws_dynamodb_table.users.name
-      SEARCHES_TABLE           = aws_dynamodb_table.searches.name
-      PROFILES_TABLE           = aws_dynamodb_table.profiles.name
-      JOBS_TABLE               = aws_dynamodb_table.jobs.name
-      TELEGRAM_CODES_TABLE     = aws_dynamodb_table.telegram_codes.name
-      RESUMES_TABLE            = aws_dynamodb_table.resumes.name
-      COMPANY_SIZE_CACHE_TABLE = aws_dynamodb_table.company_size_cache.name
-      SCRAPE_RUNS_TABLE        = aws_dynamodb_table.scrape_runs.name
-      MAX_SCORER_CALLS_PER_RUN = "150"
+      ENVIRONMENT                = var.environment
+      TELEGRAM_BOT_TOKEN         = var.telegram_bot_token
+      WAWEB_SIDECAR_URL          = var.waweb_sidecar_url
+      WAWEB_SHARED_SECRET        = var.waweb_shared_secret
+      GEMINI_API_KEY             = var.gemini_api_key
+      GROQ_API_KEY               = var.groq_api_key
+      OPENROUTER_API_KEY         = var.openrouter_api_key
+      ANTHROPIC_API_KEY          = var.anthropic_api_key
+      AI_USAGE_TABLE             = aws_dynamodb_table.ai_usage.name
+      AI_PAID_DAILY_BUDGET_USD   = tostring(var.ai_paid_daily_budget_usd)
+      GEMINI_FREE_TIER_CONFIRMED = tostring(var.gemini_free_tier_confirmed)
+      OMNIROUTE_BASE_URL         = var.omniroute_base_url
+      OMNIROUTE_API_KEY          = var.omniroute_api_key
+      OMNIROUTE_MODEL            = var.omniroute_model
+      LINKEDIN_EMAIL             = var.linkedin_email
+      LINKEDIN_PASSWORD          = var.linkedin_password
+      USERS_TABLE                = aws_dynamodb_table.users.name
+      SEARCHES_TABLE             = aws_dynamodb_table.searches.name
+      PROFILES_TABLE             = aws_dynamodb_table.profiles.name
+      JOBS_TABLE                 = aws_dynamodb_table.jobs.name
+      TELEGRAM_CODES_TABLE       = aws_dynamodb_table.telegram_codes.name
+      RESUMES_TABLE              = aws_dynamodb_table.resumes.name
+      COMPANY_SIZE_CACHE_TABLE   = aws_dynamodb_table.company_size_cache.name
+      SCRAPE_RUNS_TABLE          = aws_dynamodb_table.scrape_runs.name
+      MAX_SCORER_CALLS_PER_RUN   = "150"
     }
   }
 }
@@ -341,7 +474,7 @@ resource "aws_lambda_function" "telegram_bot" {
   environment {
     variables = {
       ENVIRONMENT             = var.environment
-      SECRETS_NAME            = var.secrets_name
+      TELEGRAM_BOT_TOKEN      = var.telegram_bot_token
       USERS_TABLE             = aws_dynamodb_table.users.name
       SEARCHES_TABLE          = aws_dynamodb_table.searches.name
       PROFILES_TABLE          = aws_dynamodb_table.profiles.name

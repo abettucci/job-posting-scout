@@ -1,6 +1,6 @@
 # LinkedIn Job Scout
 
-Monitors job searches across LinkedIn, company ATS boards, and remote-job aggregators, scores each listing with Claude Haiku against your candidate profile, and notifies you on Telegram. Includes a Kanban-style interview tracker.
+Monitors job searches across LinkedIn, company ATS boards, and remote-job aggregators, scores each listing with a configurable AI-provider cascade against your candidate profile, and notifies you on Telegram. Includes a Kanban-style interview tracker.
 
 ## How it works
 
@@ -13,7 +13,7 @@ LinkedIn (Playwright) / ATS APIs / Aggregator APIs → raw job listings
         ↓
 DynamoDB dedup (per user)
         ↓
-Claude Haiku scoring (0–100)
+AI provider cascade scoring (0–100)
         ↓  score ≥ threshold
 Telegram notification
 ```
@@ -47,18 +47,18 @@ The scraper reads ordinary public pages or documented/public feeds only. It does
 | Layer | Tech |
 |---|---|
 | Scraper | Python · Playwright · Chromium |
-| AI features | Anthropic Claude Haiku 5.5 (`claude-haiku-5-5`) for scoring, resume tools, cover letters, and interview assistance |
+| AI features | Confirmed Gemini free tier → OpenRouter Free → paid Claude Haiku → paid Groq fallback |
 | API | FastAPI · Mangum · AWS Lambda |
 | Bot | Telegram webhook · AWS Lambda |
-| Storage | DynamoDB (6 tables) |
-| Infra | CloudFormation · ECR · EventBridge · API Gateway |
+| Storage | DynamoDB |
+| Infra | Terraform · ECR · EventBridge · API Gateway |
 | Frontend | Next.js 14 · Tailwind CSS |
 | Deploy | Vercel (frontend) · AWS (backend) |
 
 ## Features
 
 - **Job monitoring** — scrapes your saved LinkedIn search URLs, tracked ATS company boards, and remote-job aggregators on a schedule, deduplicating across runs
-- **AI scoring** — Claude Haiku returns a 0–100 score, reasons, and a recommendation (APPLY / MAYBE / SKIP) based on your profile
+- **AI scoring** — the configured provider cascade returns a 0–100 score, reasons, and a recommendation (APPLY / MAYBE / SKIP) based on your profile
 - **Telegram notifications** — only jobs above your score threshold land in your chat
 - **Multi-user** — each user has their own searches, profile, and Telegram account; <20 users
 - **Interview tracker** — Kanban board (Applied → Phone → Technical → Onsite → Offer) with Google Calendar deep links
@@ -68,9 +68,9 @@ The scraper reads ordinary public pages or documented/public feeds only. It does
 
 ```
 linkedin-job-scout/
+├── main.tf                        # Terraform — AWS resources and Lambda environment
+├── .github/workflows/deploy.yml   # Docker build/push, Terraform deploy, Telegram webhook
 ├── aws/
-│   ├── infra/
-│   │   └── template.yaml          # CloudFormation — all resources
 │   └── lambdas/
 │       ├── shared/                # Config, DynamoDB client, auth, scorer, Telegram client
 │       ├── api/                   # FastAPI + Mangum (auth, searches, profile, jobs, interviews)
@@ -100,8 +100,6 @@ linkedin-job-scout/
 │           ├── api.ts             # Typed API client
 │           ├── auth.ts            # JWT auth context
 │           └── gcal.ts            # Google Calendar deep link (no OAuth)
-├── Makefile                       # build / push / deploy / logs / set-webhook
-└── .env.example
 ```
 
 ## Setup
@@ -113,13 +111,11 @@ linkedin-job-scout/
 - Node.js 20+
 - Python 3.11+
 
-### 1. Clone and configure
+### 1. Clone the repository
 
 ```bash
 git clone <repo>
 cd linkedin-job-scout
-cp .env.example .env
-# Fill in all values in .env
 ```
 
 Required secrets:
@@ -128,48 +124,87 @@ Required secrets:
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) |
 | `TELEGRAM_WEBHOOK_SECRET` | Any random 32+ char string (`openssl rand -hex 32`) |
-| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) |
-| `OMNIROUTE_BASE_URL` *(optional)* | Your OpenAI-compatible OmniRoute/gateway base URL |
-| `OMNIROUTE_API_KEY` *(optional)* | API key for that gateway |
-| `OMNIROUTE_MODEL` *(optional)* | Fallback model; defaults to `auto` |
+| `GEMINI_API_KEY` *(optional)* | [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| `GROQ_API_KEY` *(optional)* | [Groq Console](https://console.groq.com/keys) |
+| `OPENROUTER_API_KEY` *(optional)* | [OpenRouter](https://openrouter.ai/settings/keys) |
+| `ANTHROPIC_API_KEY` *(optional final fallback)* | [console.anthropic.com](https://console.anthropic.com) |
 | `JWT_SECRET` | Any random 32+ char string |
-| `LINKEDIN_EMAIL` | Your LinkedIn account |
-| `LINKEDIN_PASSWORD` | Your LinkedIn account |
+| `LINKEDIN_EMAIL` *(optional)* | Your LinkedIn account (used if session cookies need renewal) |
+| `LINKEDIN_PASSWORD` *(optional)* | Your LinkedIn account (used if session cookies need renewal) |
 | `FRONTEND_URL` | Your Vercel deployment URL |
 
-The fallback is used only after Anthropic fails due to quota, rate limiting, or
-an outage. Both `OMNIROUTE_BASE_URL` and `OMNIROUTE_API_KEY` must be present
-to enable it. The scraper never creates or rotates accounts: configure only
-providers and budgets you own. If every provider is unavailable, each new job
-is saved as `pending` and retried automatically on later scheduled runs.
+Text generation tries Gemini Flash first only when
+`GEMINI_FREE_TIER_CONFIRMED=true`; this is an explicit operator assertion that
+the Google project/key uses a non-billable tier. OpenRouter's `openrouter/free`
+is next. If both free providers are unavailable, Haiku is the first paid
+fallback and Groq GPT-OSS 120B is only the next paid fallback. Groq is not
+treated as free because its model has published per-token pricing. Providers
+without keys are skipped. Legacy OmniRoute settings are not part of this chain.
 
-### 2. First deploy (CloudFormation + ECR repos)
+Paid requests reserve an estimated maximum against a shared DynamoDB budget
+before leaving the app. The default cap is **US$1 per UTC day**, configurable
+with Terraform variable `ai_paid_daily_budget_usd`; use `0` to disable paid
+fallback entirely. The estimate uses prompt length and max output tokens, then
+settles to provider-reported usage where available. Failed/time-out paid calls
+retain their reservation for the day so a timeout cannot accidentally permit
+unbounded retries. The existing scraper cap of 150 scoring calls per run is
+separate from this global paid-spend guard. A failed paid-budget reservation
+fails closed. Legacy OmniRoute settings are not part of this chain.
+If every configured provider is unavailable, each new job is saved as
+`pending` and retried automatically on later scheduled runs.
 
-```bash
-# Export env vars from your .env file
-export $(grep -v '^#' .env | xargs)
+Privacy note: Gemini's free-tier terms may allow submitted content to be used
+to improve Google products. Resume tailoring sends resume data and job
+descriptions to whichever configured provider responds first. Use providers
+for sensitive resume data only if you accept their current data-handling terms.
+Gemini is skipped unless `gemini_free_tier_confirmed=true` is set in Terraform;
+the API itself cannot enforce that an API key stays on a free billing tier.
+Google's free-tier terms may also allow submitted content to improve its
+products. OpenRouter Free may route to different underlying models/providers,
+so review their current data handling terms before sending a resume or other
+personal information. This matters because whichever provider is attempted
+receives the request content.
 
-# Build and push images (creates ECR repos first via CFN)
-make deploy          # creates all AWS resources
-make push            # builds and pushes Docker images
-make update-functions  # points Lambdas to the new images
-```
+### 2. Configure GitHub Actions secrets
 
-### 3. Register the Telegram webhook
+In the personal repository settings, open **Secrets and variables → Actions**
+and add the following. The deployment job (not the Docker build job) passes
+these values as sensitive Terraform inputs; the Docker images do not contain
+credentials.
 
-After deploy, get the API Gateway URL from CloudFormation outputs:
+Required: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ACCOUNT_ID`,
+`AWS_REGION`, `FRONTEND_URL`, `TELEGRAM_WEBHOOK_SECRET`,
+`TELEGRAM_BOT_TOKEN`, and `JWT_SECRET`. Configure at least one of
+`GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, or
+`ANTHROPIC_API_KEY` for AI features.
 
-```bash
-# Get the webhook URL from CFN outputs
-WEBHOOK_URL=$(aws cloudformation describe-stacks \
-  --stack-name linkedin-job-scout-prod \
-  --query "Stacks[0].Outputs[?OutputKey=='TelegramWebhookUrl'].OutputValue" \
-  --output text)
+Optional: `LINKEDIN_EMAIL`, `LINKEDIN_PASSWORD`, `WAWEB_SIDECAR_URL`,
+`WAWEB_SHARED_SECRET`, `OMNIROUTE_BASE_URL`, `OMNIROUTE_API_KEY`, and
+`OMNIROUTE_MODEL`.
 
-make set-webhook WEBHOOK_URL=$WEBHOOK_URL
-```
+Terraform marks secret variables as sensitive, but Terraform state can still
+contain their values. The GitHub-hosted deploy runner uses local, ephemeral
+state; do not persist or share that state file. At runtime the app reads static
+credentials from Lambda environment variables. Only the mutable LinkedIn
+session cookie remains in Secrets Manager.
 
-### 4. Deploy the frontend
+### 3. First deploy (Terraform + ECR repos)
+
+Push to `main` or run the **Deploy** workflow manually. It builds and pushes
+the three Lambda Docker images to ECR, then applies Terraform and registers
+the Telegram webhook. Secrets are supplied at deploy time and never baked
+into the images. After a successful rollout and smoke test, delete the old
+static `linkedin-job-scout/prod` Secrets Manager secret to stop its monthly
+charge; retain `linkedin-job-scout/linkedin-cookies`, which the app updates
+while managing the LinkedIn session.
+
+### 4. Telegram webhook
+
+The deploy workflow registers the webhook automatically. To inspect the URL,
+run `terraform output -raw telegram_webhook_url` from the Terraform working
+directory after deployment.
+
+### 5. Deploy the frontend
 
 ```bash
 cd frontend
@@ -181,7 +216,7 @@ npm install && npm run build
 npx vercel --prod
 ```
 
-### 5. Create your account
+### 6. Create your account
 
 Open the frontend URL, sign up, then go to **Settings** to:
 1. Configure your candidate profile (must-have, nice-to-have, deal-breakers)
@@ -192,29 +227,15 @@ Open the frontend URL, sign up, then go to **Settings** to:
 ### WhatsApp job alerts
 
 WhatsApp delivery uses the private WhatsApp Web sidecar's `POST /send` endpoint. Add
-`WAWEB_SIDECAR_URL` and `WAWEB_SHARED_SECRET` to the existing AWS Secrets Manager
-JSON secret referenced by `SECRETS_NAME` (by default `linkedin-job-scout/prod`).
-Keep the shared secret server-side; do not add it to Vercel or frontend environment
-variables. Then deploy the scraper image and enable WhatsApp in **Settings → New job
-notifications**, entering the phone with its country code (for example `+54911…`).
+`WAWEB_SIDECAR_URL` and `WAWEB_SHARED_SECRET` as GitHub Actions repository
+secrets. The deploy workflow passes them through Terraform to the scraper
+Lambda's environment. Keep the shared secret server-side; never add it to
+Vercel or frontend environment variables. Then enable WhatsApp in **Settings →
+New job notifications**, entering the phone with its country code (for example
+`+54911…`).
 Telegram remains enabled by default for existing profiles; each channel can be toggled
 independently. Only new jobs that pass the configured filters and score threshold are
 sent.
-
-## Makefile reference
-
-```bash
-make build              # Build all 3 Docker images
-make push               # Build + tag + push to ECR
-make deploy             # Deploy/update CloudFormation stack
-make update-functions   # Point Lambdas to latest image tag
-make invoke-scraper     # Manually trigger one scraper run
-make logs-api           # Tail API Lambda logs
-make logs-scraper       # Tail Scraper Lambda logs
-make logs-bot           # Tail Telegram Bot Lambda logs
-make set-webhook        # Register Telegram webhook URL
-make frontend-dev       # npm install + next dev
-```
 
 ## API endpoints
 
@@ -279,15 +300,15 @@ At 4 runs/day × 5 days/week × 3 users × 30 jobs/search:
 
 | Service | Estimated cost |
 |---|---|
-| Claude Haiku | ~$2–5/month |
+| AI providers | Free providers are attempted first; paid fallback usage depends on provider availability and volume |
 | Lambda | Free tier |
 | DynamoDB | Free tier |
 | API Gateway | Free tier |
 | ECR | ~$0.50/month |
-| **Total** | **~$3–6/month** |
+| Secrets Manager | One mutable LinkedIn-cookie secret remains |
 
 ## Notes on LinkedIn scraping
 
-The scraper uses Playwright with your LinkedIn credentials stored in AWS Secrets Manager. Session cookies are persisted between runs to avoid repeated logins. To reduce detection risk, the scraper runs at most 4 times per day on weekdays, uses random delays between actions, and is capped at 30 jobs per search URL per run.
+The scraper reads LinkedIn login credentials from the Lambda environment configured by Terraform and persists session cookies in Secrets Manager between runs. To reduce detection risk, the scraper runs at most 4 times per day on weekdays, uses random delays between actions, and is capped at 30 jobs per search URL per run.
 
 Automated scraping may violate LinkedIn's Terms of Service. Use at your own discretion.

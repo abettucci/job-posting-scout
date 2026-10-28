@@ -20,6 +20,14 @@ frontend/tsconfig.tsbuildinfo
 .aws-sam/
 samconfig.toml
 
+# Terraform state and local working data can contain credentials
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
 # Docker
 *.tar
 

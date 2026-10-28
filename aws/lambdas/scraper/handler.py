@@ -191,6 +191,12 @@ def _scoring_router(cfg) -> ScoringRouter:
         fallback_base_url=cfg.omniroute_base_url,
         fallback_api_key=cfg.omniroute_api_key,
         fallback_model=cfg.omniroute_model,
+        gemini_api_key=cfg.gemini_api_key,
+        groq_api_key=cfg.groq_api_key,
+        openrouter_api_key=cfg.openrouter_api_key,
+        daily_paid_budget_usd=cfg.ai_paid_daily_budget_usd,
+        usage_table_name=cfg.ai_usage_table,
+        gemini_free_tier_confirmed=cfg.gemini_free_tier_confirmed,
     )
 
 # ── ATS provider dispatch ─────────────────────────────────────────────────────
