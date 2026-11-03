@@ -138,6 +138,7 @@ jobs:
           terraform import aws_dynamodb_table.cv_history     $P-cv-history     2>/dev/null || true
           terraform import aws_dynamodb_table.company_size_cache $P-company-size-cache 2>/dev/null || true
           terraform import aws_dynamodb_table.scrape_runs    $P-scrape-runs    2>/dev/null || true
+          terraform import aws_dynamodb_table.ai_usage      $P-ai-usage       2>/dev/null || true
 
           # IAM
           terraform import aws_iam_role.lambda_exec       $P-lambda-role              2>/dev/null || true

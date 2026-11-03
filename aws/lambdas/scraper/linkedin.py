@@ -33,6 +33,42 @@ _CHALLENGE_INDICATORS = (
     "captcha", "checkpoint/challenge", "let's do a quick",
 )
 
+# LinkedIn has changed the list-item wrapper across its jobs UI revisions.
+# Keep these selectors specific to job cards; do not fall back to generic
+# links or list items that could silently produce unrelated page content.
+_JOB_CARD_SELECTORS = (
+    ".jobs-search-results__list-item",
+    ".jobs-search-results-list__list-item",
+    ".scaffold-layout__list-item",
+    "li[data-occludable-job-id]",
+    ".job-card-container",
+)
+
+_JOB_TITLE_SELECTORS = (
+    ".job-card-list__title",
+    ".job-card-container__link",
+    "strong",
+    "a[href*='/jobs/view/']",
+)
+_JOB_COMPANY_SELECTORS = (
+    ".job-card-container__primary-description",
+    ".job-card-container__company-name",
+    ".artdeco-entity-lockup__subtitle",
+    "a[href*='/company/']",
+)
+_JOB_LOCATION_SELECTORS = (
+    ".job-card-container__metadata-item",
+    ".artdeco-entity-lockup__caption",
+    "[class*='metadata']",
+)
+
+_NO_RESULTS_INDICATORS = (
+    "no matching jobs found",
+    "no jobs found",
+    "there are no jobs matching your search",
+    "no results found",
+)
+
 
 class LinkedInAuthenticationError(RuntimeError):
     """The shared LinkedIn session cannot be used from this runtime.
@@ -57,6 +93,15 @@ async def _extract_job_id(url: str) -> Optional[str]:
         return None
 
 
+async def _first_matching_element(root, selectors):
+    """Return the first matching descendant, tolerating selector drift."""
+    for selector in selectors:
+        element = await root.query_selector(selector)
+        if element:
+            return element
+    return None
+
+
 async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List[Dict]:
     """Navigate to a LinkedIn search URL and extract job data."""
     logger.info(f"Scraping: {search_url}")
@@ -72,11 +117,72 @@ async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List
             logger.warning(f"LinkedIn session expired (redirected to {page.url}) — need re-authentication")
             return []
 
-        # Wait for job cards
-        await page.wait_for_selector(".jobs-search-results__list-item", timeout=15_000)
+        # Wait for any known job-card wrapper. LinkedIn has changed the outer
+        # list markup more than once, so a single legacy selector made valid
+        # searches look like scraper failures.
+        selector_group = ", ".join(_JOB_CARD_SELECTORS)
+        try:
+            await page.wait_for_selector(selector_group, state="visible", timeout=15_000)
+        except Exception:
+            title = ""
+            body_text = ""
+            try:
+                title = await page.title()
+                body_text = (await page.locator("body").inner_text(timeout=2_000)).lower()
+            except Exception:
+                pass
 
-        cards = await page.query_selector_all(".jobs-search-results__list-item")
-        logger.info(f"Found {len(cards)} job cards")
+            lowered_url = page.url.lower()
+            challenge = any(indicator in body_text for indicator in _CHALLENGE_INDICATORS)
+            no_results = any(indicator in body_text for indicator in _NO_RESULTS_INDICATORS)
+            selector_counts = {}
+            for selector in _JOB_CARD_SELECTORS:
+                try:
+                    selector_counts[selector] = await page.locator(selector).count()
+                except Exception:
+                    selector_counts[selector] = -1
+
+            if challenge or any(part in lowered_url for part in ("/checkpoint", "/authwall", "/login")):
+                reason = "challenge_or_auth"
+            elif no_results:
+                reason = "no_results"
+            else:
+                reason = "job_cards_not_found"
+
+            logger.warning(
+                "LinkedIn search produced no visible job cards: reason=%s final_url=%s "
+                "title=%r challenge=%s no_results=%s selector_counts=%s",
+                reason,
+                page.url,
+                title[:160],
+                challenge,
+                no_results,
+                selector_counts,
+            )
+            return []
+
+        cards = []
+        selected_selector = None
+        for selector in _JOB_CARD_SELECTORS:
+            locator = page.locator(selector)
+            for index in range(await locator.count()):
+                candidate = locator.nth(index)
+                if await candidate.is_visible():
+                    handle = await candidate.element_handle()
+                    if handle:
+                        selected_selector = selector
+                        cards.append(handle)
+            if cards:
+                break
+
+        if not cards:
+            logger.warning(
+                "LinkedIn card selector matched but no visible cards remained: final_url=%s selectors=%s",
+                page.url,
+                _JOB_CARD_SELECTORS,
+            )
+            return []
+        logger.info("Found %s job cards using selector %s", len(cards), selected_selector)
 
         for card in cards[:max_jobs]:
             try:
@@ -85,10 +191,10 @@ async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List
                 await _random_delay(800, 2000)
 
                 # Extract metadata from card
-                title_el = await card.query_selector(".job-card-list__title")
-                company_el = await card.query_selector(".job-card-container__primary-description")
-                location_el = await card.query_selector(".job-card-container__metadata-item")
-                link_el = await card.query_selector("a.job-card-list__title")
+                title_el = await _first_matching_element(card, _JOB_TITLE_SELECTORS)
+                company_el = await _first_matching_element(card, _JOB_COMPANY_SELECTORS)
+                location_el = await _first_matching_element(card, _JOB_LOCATION_SELECTORS)
+                link_el = await card.query_selector("a[href*='/jobs/view/']")
 
                 title = (await title_el.inner_text()).strip() if title_el else ""
                 company = (await company_el.inner_text()).strip() if company_el else ""
@@ -115,7 +221,12 @@ async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List
                     continue
 
                 # Extract description from the detail pane
-                desc_el = await page.query_selector(".jobs-description__content")
+                desc_el = await _first_matching_element(page, (
+                    ".jobs-description__content",
+                    ".jobs-box__html-content",
+                    ".jobs-description-content__text",
+                    ".jobs-description",
+                ))
                 description = (await desc_el.inner_text()).strip() if desc_el else ""
 
                 full_url = f"https://www.linkedin.com/jobs/view/{job_id}"
