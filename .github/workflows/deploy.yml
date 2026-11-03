@@ -1,0 +1,217 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: api
+            dockerfile: aws/lambdas/Dockerfile.api
+          - image: scraper
+            dockerfile: aws/lambdas/Dockerfile.scraper
+          - image: telegram-bot
+            dockerfile: aws/lambdas/Dockerfile.telegram_bot
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Create ECR repo if not exists
+        run: |
+          aws ecr create-repository \
+            --repository-name linkedin-job-scout-${{ matrix.image }} \
+            --region ${{ secrets.AWS_REGION }} 2>/dev/null || true
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        env:
+          REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+        run: |
+          REPO="$REGISTRY/linkedin-job-scout-${{ matrix.image }}"
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --load \
+            -f ${{ matrix.dockerfile }} \
+            -t $REPO:${{ github.sha }} \
+            -t $REPO:latest \
+            aws/lambdas/
+          docker push $REPO:${{ github.sha }}
+          docker push $REPO:latest
+
+  terraform-deploy:
+    needs: [build-and-push]
+    runs-on: ubuntu-latest
+    env:
+      TF_VAR_aws_region:              ${{ secrets.AWS_REGION }}
+      TF_VAR_aws_account_id:          ${{ secrets.AWS_ACCOUNT_ID }}
+      TF_VAR_frontend_url:            ${{ secrets.FRONTEND_URL }}
+      TF_VAR_telegram_webhook_secret: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+      TF_VAR_telegram_bot_token:      ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TF_VAR_jwt_secret:              ${{ secrets.JWT_SECRET }}
+      TF_VAR_gemini_api_key:          ${{ secrets.GEMINI_API_KEY }}
+      TF_VAR_groq_api_key:            ${{ secrets.GROQ_API_KEY }}
+      TF_VAR_openrouter_api_key:      ${{ secrets.OPENROUTER_API_KEY }}
+      TF_VAR_anthropic_api_key:       ${{ secrets.ANTHROPIC_API_KEY }}
+      TF_VAR_omniroute_base_url:      ${{ secrets.OMNIROUTE_BASE_URL }}
+      TF_VAR_omniroute_api_key:       ${{ secrets.OMNIROUTE_API_KEY }}
+      TF_VAR_omniroute_model:         ${{ secrets.OMNIROUTE_MODEL }}
+      TF_VAR_linkedin_email:          ${{ secrets.LINKEDIN_EMAIL }}
+      TF_VAR_linkedin_password:       ${{ secrets.LINKEDIN_PASSWORD }}
+      TF_VAR_waweb_sidecar_url:       ${{ secrets.WAWEB_SIDECAR_URL }}
+      TF_VAR_waweb_shared_secret:     ${{ secrets.WAWEB_SHARED_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate required application secrets
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_ACCOUNT_ID AWS_REGION \
+                      FRONTEND_URL TELEGRAM_WEBHOOK_SECRET; do
+            if [ -z "${!name}" ]; then
+              echo "Missing GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+          [ -n "$TELEGRAM_BOT_TOKEN" ] || { echo "Missing GitHub Actions secret: TELEGRAM_BOT_TOKEN"; exit 1; }
+          [ -n "$JWT_SECRET" ] || { echo "Missing GitHub Actions secret: JWT_SECRET"; exit 1; }
+          if [ -z "$GEMINI_API_KEY" ] && [ -z "$GROQ_API_KEY" ] && \
+             [ -z "$OPENROUTER_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "Configure at least one AI provider secret (Gemini, Groq, OpenRouter, or Anthropic)."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Import existing resources
+        env:
+          TF_VAR_image_tag: ${{ github.sha }}
+        run: |
+          P="linkedin-job-scout-prod"
+
+          # DynamoDB
+          terraform import aws_dynamodb_table.users          $P-users          2>/dev/null || true
+          terraform import aws_dynamodb_table.searches       $P-searches       2>/dev/null || true
+          terraform import aws_dynamodb_table.profiles       $P-profiles       2>/dev/null || true
+          terraform import aws_dynamodb_table.jobs           $P-jobs           2>/dev/null || true
+          terraform import aws_dynamodb_table.telegram_codes $P-telegram-codes 2>/dev/null || true
+          terraform import aws_dynamodb_table.interviews     $P-interviews     2>/dev/null || true
+          terraform import aws_dynamodb_table.resumes        $P-resumes        2>/dev/null || true
+          terraform import aws_dynamodb_table.cv_history     $P-cv-history     2>/dev/null || true
+          terraform import aws_dynamodb_table.company_size_cache $P-company-size-cache 2>/dev/null || true
+          terraform import aws_dynamodb_table.scrape_runs    $P-scrape-runs    2>/dev/null || true
+          terraform import aws_dynamodb_table.ai_usage      $P-ai-usage       2>/dev/null || true
+
+          # IAM
+          terraform import aws_iam_role.lambda_exec       $P-lambda-role              2>/dev/null || true
+          terraform import aws_iam_role_policy.app_policy "$P-lambda-role:app-policy" 2>/dev/null || true
+
+          # Lambda functions
+          terraform import aws_lambda_function.api          $P-api          2>/dev/null || true
+          terraform import aws_lambda_function.scraper      $P-scraper      2>/dev/null || true
+          terraform import aws_lambda_function.telegram_bot $P-telegram-bot 2>/dev/null || true
+
+          # Lambda permissions
+          terraform import aws_lambda_permission.api_gw_api          "$P-api/AllowAPIGatewayInvokeApi"          2>/dev/null || true
+          terraform import aws_lambda_permission.api_gw_bot          "$P-telegram-bot/AllowAPIGatewayInvokeBot" 2>/dev/null || true
+          terraform import aws_lambda_permission.eventbridge_scraper "$P-scraper/AllowEventBridgeInvokeScraper" 2>/dev/null || true
+
+          # API Gateway — look up IDs dynamically
+          API_ID=$(aws apigatewayv2 get-apis \
+            --query "Items[?Name=='$P-api'].ApiId" --output text 2>/dev/null)
+          if [ -n "$API_ID" ] && [ "$API_ID" != "None" ]; then
+            terraform import aws_apigatewayv2_api.main          $API_ID            2>/dev/null || true
+            terraform import aws_apigatewayv2_stage.default     "$API_ID/\$default" 2>/dev/null || true
+
+            # Integrations
+            API_INT=$(aws apigatewayv2 get-integrations --api-id $API_ID \
+              --query "Items[?contains(IntegrationUri,'-api:')].IntegrationId" --output text 2>/dev/null)
+            BOT_INT=$(aws apigatewayv2 get-integrations --api-id $API_ID \
+              --query "Items[?contains(IntegrationUri,'telegram-bot:')].IntegrationId" --output text 2>/dev/null)
+            [ -n "$API_INT" ] && [ "$API_INT" != "None" ] && \
+              terraform import aws_apigatewayv2_integration.api          "$API_ID/$API_INT" 2>/dev/null || true
+            [ -n "$BOT_INT" ] && [ "$BOT_INT" != "None" ] && \
+              terraform import aws_apigatewayv2_integration.telegram_bot "$API_ID/$BOT_INT" 2>/dev/null || true
+
+            # Routes
+            PROXY_ROUTE=$(aws apigatewayv2 get-routes --api-id $API_ID \
+              --query "Items[?RouteKey=='ANY /{proxy+}'].RouteId" --output text 2>/dev/null)
+            WEBHOOK_ROUTE=$(aws apigatewayv2 get-routes --api-id $API_ID \
+              --query "Items[?RouteKey=='POST /webhook/telegram'].RouteId" --output text 2>/dev/null)
+            [ -n "$PROXY_ROUTE" ] && [ "$PROXY_ROUTE" != "None" ] && \
+              terraform import aws_apigatewayv2_route.api_proxy        "$API_ID/$PROXY_ROUTE"   2>/dev/null || true
+            [ -n "$WEBHOOK_ROUTE" ] && [ "$WEBHOOK_ROUTE" != "None" ] && \
+              terraform import aws_apigatewayv2_route.telegram_webhook "$API_ID/$WEBHOOK_ROUTE" 2>/dev/null || true
+          fi
+
+          # CloudWatch Log Groups
+          terraform import aws_cloudwatch_log_group.api          /aws/lambda/$P-api          2>/dev/null || true
+          terraform import aws_cloudwatch_log_group.scraper      /aws/lambda/$P-scraper      2>/dev/null || true
+          terraform import aws_cloudwatch_log_group.telegram_bot /aws/lambda/$P-telegram-bot 2>/dev/null || true
+
+          # EventBridge — import rule, then find existing target and reconcile
+          terraform import aws_cloudwatch_event_rule.scraper_schedule $P-scraper-schedule 2>/dev/null || true
+          EXISTING_TGT=$(aws events list-targets-by-rule --rule "$P-scraper-schedule" \
+            --query 'Targets[0].Id' --output text 2>/dev/null || true)
+          if [ "$EXISTING_TGT" = "scraper-lambda" ]; then
+            terraform import aws_cloudwatch_event_target.scraper "$P-scraper-schedule/scraper-lambda" 2>/dev/null || true
+          elif [ -n "$EXISTING_TGT" ] && [ "$EXISTING_TGT" != "None" ]; then
+            # Wrong target_id — remove it so Terraform recreates with correct id
+            aws events remove-targets --rule "$P-scraper-schedule" --ids "$EXISTING_TGT" 2>/dev/null || true
+          fi
+
+      - name: Terraform Apply
+        env:
+          TF_VAR_image_tag: ${{ github.sha }}
+        run: terraform apply -auto-approve
+
+      - name: Set Telegram Webhook
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+        run: |
+          WEBHOOK_URL=$(terraform output -raw telegram_webhook_url)
+          curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+            -d "url=$WEBHOOK_URL" \
+            -d "secret_token=$TELEGRAM_WEBHOOK_SECRET" | python3 -m json.tool
