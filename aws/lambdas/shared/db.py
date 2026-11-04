@@ -5,6 +5,11 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
+try:
+    from .job_policy import posting_mismatch
+except ImportError:  # Lambda handlers add shared/ directly to sys.path.
+    from job_policy import posting_mismatch
+
 logger = logging.getLogger(__name__)
 
 # Job ids are intentionally stable identifiers supplied by each board, not a
@@ -340,6 +345,7 @@ class DynamoDBClient:
         applied: Optional[bool] = None,
         dismissed: Optional[bool] = None,
         deal_breaker: Optional[bool] = None,
+        discovery_profile: Optional[Dict] = None,
     ) -> tuple[List[Dict], Optional[Dict]]:
         try:
             filter_expr = Attr("score").gte(min_score)
@@ -355,7 +361,7 @@ class DynamoDBClient:
                     Attr("dismissed").eq(True) if dismissed
                     else (Attr("dismissed").not_exists() | Attr("dismissed").eq(False))
                 )
-            if deal_breaker is not None:
+            if deal_breaker is not None and discovery_profile is None:
                 # Jobs saved before automatic eligibility filters existed do
                 # not have this attribute. Treat them as normal queue jobs;
                 # only an explicit True belongs in the audit queue. A manual
@@ -404,6 +410,19 @@ class DynamoDBClient:
                     resp = self.jobs.query(**legacy_kwargs)
                 for raw_item in resp.get("Items", []):
                     item = _from_decimal(raw_item)
+                    if discovery_profile is not None:
+                        # Re-evaluate legacy rows without deleting application
+                        # history or requiring a destructive migration. Keep
+                        # filling the page after hiding an ineligible row.
+                        mismatch = posting_mismatch(item, discovery_profile.get("eligible_regions") or [])
+                        if mismatch:
+                            item.update(mismatch)
+                            item["filter_override"] = False
+                        is_filtered = bool(item.get("deal_breaker") and not item.get("filter_override"))
+                        if deal_breaker is not None and is_filtered != deal_breaker:
+                            continue
+                        if deal_breaker is None and mismatch:
+                            continue
                     # Some early rows persisted the string "unknown" before
                     # default seniority inference existed. It is not one of
                     # the public seniority values; returning None lets the UI

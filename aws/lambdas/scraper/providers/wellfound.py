@@ -169,6 +169,8 @@ async def fetch_jobs(keywords: str = "", location_filter: str = "") -> List[Dict
                 "url": detail_url,
                 "description": description[:6000],
                 "posted_date": normalize_posted_date(posting.get("datePosted") or listing.get("liveStartAt")),
+                "date_created": normalize_posted_date(posting.get("dateCreated")),
+                "salary": posting.get("baseSalary") or "",
             })
 
     logger.info("wellfound: %s jobs (after filters)", len(jobs))

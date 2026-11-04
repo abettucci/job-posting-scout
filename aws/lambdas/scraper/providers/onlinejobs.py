@@ -7,7 +7,7 @@ Two real limitations of the source site itself (not a scraping shortcut):
     detail page, so `company` is always empty here.
   - No location field is shown anywhere on a listing; every posting on this
     site is inherently "remote from the Philippines (or open to it)", so
-    `location` is hardcoded to "Remote" rather than left blank.
+    `location` is recorded as "Remote — Philippines", never global Remote.
 
 Unlike CompuJobs, the search endpoint is cheap enough per request (one page,
 no per-job detail fetch — the listing already embeds the full description)
@@ -75,7 +75,7 @@ def _parse_listing_page(html: str) -> List[Dict]:
             "job_id": f"onlinejobs:{match.group(1)}",
             "title": title,
             "company": "",
-            "location": "Remote",
+            "location": "Remote — Philippines",
             "url": _BASE_URL + href if href.startswith("/") else href,
             "description": description[:6000],
             "posted_date": posted_date,

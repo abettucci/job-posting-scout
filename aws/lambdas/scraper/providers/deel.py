@@ -197,6 +197,8 @@ async def fetch_jobs(slug: str, company_name: str = "", keywords: str = "", loca
                 "url": detail_url,
                 "description": description[:6000],
                 "posted_date": normalize_posted_date(posting.get("datePosted")),
+                "date_created": normalize_posted_date(posting.get("dateCreated")),
+                "salary": posting.get("baseSalary") or "",
             })
     logger.info("deel/%s: %s jobs (after filters)", organization, len(jobs))
     return jobs

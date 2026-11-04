@@ -275,6 +275,16 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
         cursor: str | None = Query(None),
         user=Depends(get_current_user),
     ):
+        discovery_profile = None
+        if applied is not True and dismissed is not True:
+            discovery_profile = dict(db.get_profile(user["user_id"]) or {})
+            if not discovery_profile.get("eligible_regions"):
+                # Older accounts may have locations only on saved searches.
+                discovery_profile["eligible_regions"] = list(dict.fromkeys(
+                    location.strip()
+                    for search in db.get_user_searches(user["user_id"]) if search.get("active")
+                    for location in (search.get("location_filter") or "").split(",") if location.strip()
+                ))
         items, next_key = db.get_user_jobs(
             user_id=user["user_id"],
             min_score=min_score,
@@ -283,6 +293,7 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
             applied=applied,
             dismissed=dismissed,
             deal_breaker=auto_filtered,
+            discovery_profile=discovery_profile,
         )
         return {"items": items, "count": len(items), "next_cursor": _encode_cursor(next_key)}
 

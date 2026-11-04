@@ -126,7 +126,7 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
             intent = _normalize_intent(ai.complete_json(_SYSTEM, prompt))
         except ScoringUnavailableError:
             raise HTTPException(503, "El asistente no está disponible ahora. Tus búsquedas no se modificaron; probá de nuevo en un rato.") from None
-        jobs, _ = db.get_user_jobs(user["user_id"], min_score=0, limit=100, applied=False, dismissed=False)
+        jobs, _ = db.get_user_jobs(user["user_id"], min_score=0, limit=100, applied=False, dismissed=False, discovery_profile=profile)
         return {"intent": intent, "matches": _matching_jobs(jobs, intent, profile)}
 
     @router.post("/monitor")

@@ -139,6 +139,8 @@ async def fetch_jobs(keywords: str = "", location_filter: str = "") -> List[Dict
                 "url": application_url,
                 "description": description[:6000],
                 "posted_date": normalize_posted_date(posting.get("datePosted") or listing.get("date")),
+                "date_created": normalize_posted_date(posting.get("dateCreated")),
+                "salary": posting.get("baseSalary") or "",
                 "source_url": f"{_BASE_URL}/{slug}",
                 "valid_through": normalize_posted_date(posting.get("validThrough")),
             })

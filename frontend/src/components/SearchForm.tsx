@@ -103,7 +103,7 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
     id: "onlinejobs",
     label: "OnlineJobs.ph",
     placeholder: "",
-    help: "Philippines remote/VA jobs board. Requires keywords below. Company name and location aren't available from this source (every posting shows as company-less, \"Remote\"). No public API — HTML scraping.",
+    help: "Philippines-focused remote/VA jobs board. Jobs are labeled Remote — Philippines and must match your eligible locations. Requires keywords below. Company names are not available. No public API — HTML scraping.",
   },
   {
     id: "yc",

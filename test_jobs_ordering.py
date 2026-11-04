@@ -73,6 +73,58 @@ class _IndexRolloutJobsTable(_FakeJobsTable):
 
 
 class JobsOrderingTests(unittest.TestCase):
+    def test_historical_salary_currency_is_rechecked_against_current_profile(self):
+        db = DynamoDBClient.__new__(DynamoDBClient)
+        db.jobs = _FakeJobsTable()
+        db.jobs.query = lambda **kwargs: {"Items": [{
+            "job_id": "other-board:php-salary", "location": "Remote", "score": 90,
+            "description": "Salary PHP 60000 per month",
+        }]}
+        profile = {"eligible_regions": ["Argentina", "LATAM", "Worldwide"]}
+        items, _ = db.get_user_jobs("user-1", deal_breaker=False, discovery_profile=profile)
+        self.assertEqual(items, [])
+        audit, _ = db.get_user_jobs("user-1", deal_breaker=True, discovery_profile=profile)
+        self.assertIn("PHP", audit[0]["reasons"][0])
+
+    def test_discovery_refills_pages_after_rejecting_legacy_regional_posting(self):
+        db = DynamoDBClient.__new__(DynamoDBClient)
+        db.jobs = _FakeJobsTable()
+        pages = iter([
+            {"Items": [{"job_id": "onlinejobs:old", "location": "Remote", "score": 90}],
+             "LastEvaluatedKey": {"user_id": "user-1", "job_id": "onlinejobs:old"}},
+            {"Items": [{"job_id": "eligible", "location": "Argentina", "score": 80}]},
+        ])
+        def query(**kwargs):
+            db.jobs.calls.append(kwargs)
+            return next(pages)
+        db.jobs.query = query
+        items, cursor = db.get_user_jobs("user-1", limit=1, deal_breaker=False,
+                                         discovery_profile={"eligible_regions": ["Argentina", "Worldwide"]})
+        self.assertEqual([job["job_id"] for job in items], ["eligible"])
+        self.assertIsNone(cursor)
+        self.assertEqual(len(db.jobs.calls), 2)
+        self.assertEqual(db.jobs.calls[1]["ExclusiveStartKey"]["job_id"], "onlinejobs:old")
+
+    def test_old_publication_moves_to_audit_even_after_manual_override(self):
+        db = DynamoDBClient.__new__(DynamoDBClient)
+        db.jobs = _FakeJobsTable()
+        db.jobs.query = lambda **kwargs: {"Items": [{
+            "job_id": "old", "posted_date": "2000-01-01", "score": 95, "filter_override": True,
+        }]}
+        items, _ = db.get_user_jobs("user-1", deal_breaker=False, discovery_profile={})
+        self.assertEqual(items, [])
+        audit, _ = db.get_user_jobs("user-1", deal_breaker=True, discovery_profile={})
+        self.assertEqual(audit[0]["job_id"], "old")
+        self.assertFalse(audit[0]["filter_override"])
+        self.assertIn("older than 90 days", audit[0]["reasons"][0])
+
+    def test_raw_history_remains_available_without_discovery_policy(self):
+        db = DynamoDBClient.__new__(DynamoDBClient)
+        db.jobs = _FakeJobsTable()
+        db.jobs.query = lambda **kwargs: {"Items": [{"job_id": "applied-old", "posted_date": "2000-01-01", "applied": True}]}
+        items, _ = db.get_user_jobs("user-1", applied=True)
+        self.assertEqual(items[0]["job_id"], "applied-old")
+
     def test_active_queue_reads_the_newest_timestamp_index(self):
         db = DynamoDBClient.__new__(DynamoDBClient)
         db.jobs = _FakeJobsTable()

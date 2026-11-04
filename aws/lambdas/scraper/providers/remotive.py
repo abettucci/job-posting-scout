@@ -57,6 +57,7 @@ async def fetch_jobs(keywords: str = "", location_filter: str = "") -> List[Dict
             "url": job_url,
             "description": desc[:6000],
             "posted_date": posted_date,
+            "salary": j.get("salary") or "",
         })
 
     logger.info(f"remotive: {len(jobs)} jobs (after filters)")

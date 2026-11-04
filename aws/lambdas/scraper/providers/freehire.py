@@ -73,6 +73,8 @@ async def fetch_jobs(keywords: str = "", location_filter: str = "") -> List[Dict
                     "url": url,
                     "description": description[:6000],
                     "posted_date": normalize_posted_date(item.get("posted_at")),
+                    "salary_currency": item.get("salary_currency") or item.get("currency"),
+                    "salary": item.get("salary") or "",
                 })
 
             meta = payload.get("meta", {}) if isinstance(payload, dict) else {}

@@ -58,6 +58,7 @@ async def fetch_jobs(keywords: str = "", location_filter: str = "") -> List[Dict
             "url": job_url,
             "description": desc[:6000],
             "posted_date": posted_date,
+            "salary_currency": j.get("salary_currency") or j.get("currency"),
         })
 
     logger.info(f"remoteok: {len(jobs)} jobs (after filters)")

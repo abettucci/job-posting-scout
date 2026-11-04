@@ -36,6 +36,7 @@ for _p in [_SHARED_LAMBDA, _SHARED_LOCAL]:
 
 from config import get_config
 from db import DynamoDBClient
+from job_policy import local_salary_currency, posting_mismatch
 from telegram import TelegramClient, format_job_notification
 from whatsapp_web import WhatsAppWebClient, format_job_notification as format_whatsapp_job_notification
 from scorer import ScoringRouter, ScoringUnavailableError, score_job, with_resume_skills
@@ -147,6 +148,7 @@ def _should_notify(job: Dict, result: Dict, threshold: int) -> bool:
     return (
         result["score"] >= threshold
         and not result["deal_breaker"]
+        and posting_mismatch(job) is None
         and not _is_senior_title(job.get("title", ""))
         # This is produced by the scoring model from the full posting text,
         # rather than inferred by a location regex.
@@ -342,6 +344,7 @@ def _enrich_job(job: Dict) -> Dict:
     return {
         **job,
         **extracted,
+        "salary_currency": local_salary_currency(job) or job.get("salary_currency"),
         "region_scope": region_scope,
         "company_size_hint": company_size_hint,
         "company_size_source": company_size_source,
@@ -419,6 +422,9 @@ def _search_mismatch(job: Dict, search: Dict) -> Dict | None:
     are available consistently across all sources. Unknown extraction values
     are deliberately allowed instead of guessed away.
     """
+    policy_mismatch = posting_mismatch(job, (search.get("location_filter") or "").split(","))
+    if policy_mismatch:
+        return policy_mismatch
     search_seniorities = search.get("seniorities") or ([] if not search.get("seniority") else [search["seniority"]])
     if search_seniorities and job.get("seniority_level") and job["seniority_level"] not in search_seniorities:
         return {
@@ -471,6 +477,9 @@ def _region_mismatch(job: Dict, profile: Dict) -> Dict | None:
     what passes, no code change needed). An unclear job (region_scope is None)
     is never filtered — same "don't penalize missing data" rule as seniority."""
     eligible = profile.get("eligible_regions") or []
+    policy_mismatch = posting_mismatch(job, eligible)
+    if policy_mismatch:
+        return policy_mismatch
     if not eligible or job.get("region_scope") != "restricted":
         return None
     haystack = f"{job.get('location', '')} {job.get('description', '')}".lower()
@@ -610,16 +619,17 @@ async def _refresh_eligibility(user_id: str):
     refreshed = 0
     for job in jobs:
         enriched = _enrich_job(job)
-        # A person may consciously keep a reviewed false positive; never put
-        # that override back in Filtered during a bulk refresh.
-        mismatch = None if job.get("filter_override") else (
+        # Keep manual overrides for seniority/experience. The mandatory age
+        # and regional-salary guards also apply to previously overridden rows.
+        mismatch = posting_mismatch(enriched, profile.get("eligible_regions") or []) or (None if job.get("filter_override") else (
             _seniority_mismatch(enriched, profile)
             or _experience_mismatch(enriched, profile)
             or _region_mismatch(enriched, profile)
-        )
+        ))
         updated = {**job, **enriched}
         if mismatch:
             updated.update(mismatch)
+            updated["filter_override"] = False
             updated["notified"] = False
             updated["scoring_status"] = "filtered"
             filtered += 1
@@ -1026,6 +1036,8 @@ def _save_scored_job(db: DynamoDBClient, user_id: str, job: dict, result: dict, 
         "url": job.get("url", ""),
         "description": job.get("description", "")[:6000],
         "posted_date": job.get("posted_date"),
+        "date_created": job.get("date_created"),
+        "salary_currency": job.get("salary_currency"),
         "seniority_level": job.get("seniority_level"),
         "min_years_experience": job.get("min_years_experience"),
         "region_scope": job.get("region_scope"),
@@ -1041,11 +1053,11 @@ def _save_scored_job(db: DynamoDBClient, user_id: str, job: dict, result: dict, 
         "deal_breaker": result.get("deal_breaker", False),
         "recommendation": result.get("recommendation", "MAYBE"),
         "notified": notified,
-        "scoring_status": "scored",
+        "scoring_status": result.get("scoring_status", "scored"),
         "scoring_provider": result.get("scoring_provider", "unknown"),
         "notification_location_allowed": result.get("notification_location_allowed"),
         "notification_location_reason": result.get("notification_location_reason", ""),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": job.get("timestamp") or datetime.now(timezone.utc).isoformat(),
     }
     # Preserve queue choices if a saved job is reprocessed.
     for field in ("applied", "applied_at", "dismissed", "dismissed_at"):
@@ -1064,6 +1076,8 @@ def _save_unscored(db: DynamoDBClient, user_id: str, job: dict):
         "url": job.get("url", ""),
         "description": job.get("description", "")[:6000],
         "posted_date": job.get("posted_date"),
+        "date_created": job.get("date_created"),
+        "salary_currency": job.get("salary_currency"),
         "seniority_level": job.get("seniority_level"),
         "min_years_experience": job.get("min_years_experience"),
         "region_scope": job.get("region_scope"),
@@ -1079,7 +1093,7 @@ def _save_unscored(db: DynamoDBClient, user_id: str, job: dict):
         "recommendation": "SKIP",
         "notified": False,
         "scoring_status": "profile_missing",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": job.get("timestamp") or datetime.now(timezone.utc).isoformat(),
     })
 
 
@@ -1095,6 +1109,8 @@ def _save_pending_scoring(db: DynamoDBClient, user_id: str, job: dict, error: st
         "url": job.get("url", ""),
         "description": job.get("description", "")[:6000],
         "posted_date": job.get("posted_date"),
+        "date_created": job.get("date_created"),
+        "salary_currency": job.get("salary_currency"),
         "seniority_level": job.get("seniority_level"),
         "min_years_experience": job.get("min_years_experience"),
         "region_scope": job.get("region_scope"),
