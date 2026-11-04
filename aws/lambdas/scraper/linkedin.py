@@ -60,7 +60,9 @@ _JOB_LOCATION_SELECTORS = (
     ".job-card-container__metadata-item",
     ".artdeco-entity-lockup__caption",
     "[class*='metadata']",
+    "[class*='location']",
 )
+_JOB_LINK_SELECTOR = "a[href*='/jobs/view/']"
 
 _NO_RESULTS_INDICATORS = (
     "no matching jobs found",
@@ -102,6 +104,45 @@ async def _first_matching_element(root, selectors):
     return None
 
 
+async def _cards_from_job_links(page: Page):
+    """Build card handles from canonical job links when LinkedIn changes its
+    surrounding list-item classes. The chosen ancestor must contain exactly
+    one distinct /jobs/view/<id> link, which avoids treating the whole results
+    list as a card.
+    """
+    links = await page.query_selector_all(_JOB_LINK_SELECTOR)
+    cards = []
+    seen_job_ids = set()
+    for link in links:
+        if not await link.is_visible():
+            continue
+        href = await link.get_attribute("href") or ""
+        job_id = await _extract_job_id(href)
+        if not job_id or job_id in seen_job_ids:
+            continue
+        seen_job_ids.add(job_id)
+        ancestor = await link.evaluate_handle("""anchor => {
+          const jobLinks = node => [...node.querySelectorAll("a[href*='/jobs/view/']")]
+            .map(link => {
+              try { return new URL(link.href, location.href).pathname; }
+              catch { return link.getAttribute('href') || ''; }
+            });
+          let node = anchor.parentElement;
+          let best = node || anchor;
+          for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+            const ids = new Set(jobLinks(node));
+            const textLength = (node.innerText || '').trim().length;
+            if (ids.size > 1 || textLength > 1800) break;
+            if (ids.size === 1 && textLength > 0) best = node;
+          }
+          return best;
+        }""")
+        card = ancestor.as_element()
+        if card:
+            cards.append(card)
+    return cards
+
+
 async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List[Dict]:
     """Navigate to a LinkedIn search URL and extract job data."""
     logger.info(f"Scraping: {search_url}")
@@ -120,7 +161,7 @@ async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List
         # Wait for any known job-card wrapper. LinkedIn has changed the outer
         # list markup more than once, so a single legacy selector made valid
         # searches look like scraper failures.
-        selector_group = ", ".join(_JOB_CARD_SELECTORS)
+        selector_group = ", ".join((*_JOB_CARD_SELECTORS, _JOB_LINK_SELECTOR))
         try:
             await page.wait_for_selector(selector_group, state="visible", timeout=15_000)
         except Exception:
@@ -141,6 +182,10 @@ async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List
                     selector_counts[selector] = await page.locator(selector).count()
                 except Exception:
                     selector_counts[selector] = -1
+            try:
+                job_link_count = await page.locator(_JOB_LINK_SELECTOR).count()
+            except Exception:
+                job_link_count = -1
 
             if challenge or any(part in lowered_url for part in ("/checkpoint", "/authwall", "/login")):
                 reason = "challenge_or_auth"
@@ -151,15 +196,17 @@ async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List
 
             logger.warning(
                 "LinkedIn search produced no visible job cards: reason=%s final_url=%s "
-                "title=%r challenge=%s no_results=%s selector_counts=%s",
+                "title=%r challenge=%s no_results=%s job_link_count=%s selector_counts=%s",
                 reason,
                 page.url,
                 title[:160],
                 challenge,
                 no_results,
+                job_link_count,
                 selector_counts,
             )
-            return []
+            if job_link_count <= 0:
+                return []
 
         cards = []
         selected_selector = None
@@ -176,10 +223,16 @@ async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List
                 break
 
         if not cards:
+            cards = await _cards_from_job_links(page)
+            if cards:
+                selected_selector = f"{_JOB_LINK_SELECTOR} (unique-link ancestor)"
+
+        if not cards:
             logger.warning(
-                "LinkedIn card selector matched but no visible cards remained: final_url=%s selectors=%s",
+                "LinkedIn card selectors and job-link fallback matched no cards: final_url=%s selectors=%s job_link_count=%s",
                 page.url,
                 _JOB_CARD_SELECTORS,
+                await page.locator(_JOB_LINK_SELECTOR).count(),
             )
             return []
         logger.info("Found %s job cards using selector %s", len(cards), selected_selector)
@@ -194,12 +247,17 @@ async def scrape_search(page: Page, search_url: str, max_jobs: int = 30) -> List
                 title_el = await _first_matching_element(card, _JOB_TITLE_SELECTORS)
                 company_el = await _first_matching_element(card, _JOB_COMPANY_SELECTORS)
                 location_el = await _first_matching_element(card, _JOB_LOCATION_SELECTORS)
-                link_el = await card.query_selector("a[href*='/jobs/view/']")
+                link_el = await card.query_selector(_JOB_LINK_SELECTOR)
+                is_link_card = await card.evaluate("element => element.tagName === 'A'")
+                if is_link_card:
+                    link_el = card
 
                 title = (await title_el.inner_text()).strip() if title_el else ""
                 company = (await company_el.inner_text()).strip() if company_el else ""
                 location = (await location_el.inner_text()).strip() if location_el else ""
                 href = await link_el.get_attribute("href") if link_el else ""
+                if not title and link_el:
+                    title = (await link_el.inner_text()).strip()
 
                 # Company's own LinkedIn page (for company-size enrichment,
                 # see fetch_linkedin_company_size). None is a common, non-error
