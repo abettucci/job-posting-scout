@@ -228,7 +228,7 @@ export default function DashboardPage() {
             <div className="card text-center py-8">
               <p className="text-slate-600 dark:text-slate-400 text-sm">No searches yet.</p>
               <p className="text-slate-500 text-xs mt-1">
-                Add a search — a LinkedIn URL, a multi-board profile search, or a specific company — to start monitoring.
+                Add a multi-board search, a job-board feed, or a specific company careers page to start monitoring.
               </p>
             </div>
           ) : (
@@ -238,17 +238,21 @@ export default function DashboardPage() {
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{s.label}</p>
                     <p className="text-xs text-slate-500 truncate">{s.url}</p>
+                    {s.source === "linkedin" && <p className="text-xs text-amber-600 dark:text-amber-400">LinkedIn is paused temporarily; this saved search is preserved.</p>}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button
                       onClick={() => toggleSearch(s)}
+                      disabled={s.source === "linkedin"}
+                      aria-label={s.source === "linkedin" ? "LinkedIn search temporarily paused" : `${s.active ? "Pause" : "Activate"} search`}
+                      title={s.source === "linkedin" ? "LinkedIn is temporarily disabled" : undefined}
                       className={`relative w-10 h-5 rounded-full transition-colors ${
-                        s.active ? "bg-brand" : "bg-slate-300 dark:bg-slate-600"
+                        s.source !== "linkedin" && s.active ? "bg-brand" : "bg-slate-300 dark:bg-slate-600"
                       }`}
                     >
                       <span
                         className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                          s.active ? "translate-x-5" : "translate-x-0"
+                          s.source !== "linkedin" && s.active ? "translate-x-5" : "translate-x-0"
                         }`}
                       />
                     </button>

@@ -708,6 +708,9 @@ async def _main():
     # what lets us apply each search's post-fetch filters and explain the
     # provenance on the saved job card.
     linkedin_url_to_users: Dict[str, List] = {}
+    linkedin_enabled = bool(getattr(cfg, "linkedin_source_enabled", False))
+    if not linkedin_enabled:
+        logger.info("LinkedIn source disabled by configuration; continuing with ATS and aggregators")
 
     # ATS: { (source, slug, keywords, location_filter): {label, subscriptions} }
     # Deduplicates identical ATS searches across users (shared fetch).
@@ -722,6 +725,8 @@ async def _main():
         for s in searches:
             source = s.get("source") or "linkedin"
             if source == "linkedin":
+                if not linkedin_enabled:
+                    continue
                 ensure_source(user, "linkedin")
                 url = s.get("url", "")
                 if url:
@@ -753,15 +758,18 @@ async def _main():
                     continue
                 seniorities = s.get("seniorities") or ([] if not s.get("seniority") else [s["seniority"]])
                 location_filter = s.get("location_filter", "")
-                ensure_source(user, "linkedin")
+                if linkedin_enabled:
+                    ensure_source(user, "linkedin")
                 for agg_source in _MULTI_BOARD_AGGREGATOR_SOURCES:
                     ensure_source(user, agg_source)
 
-                # 1) LinkedIn — auto-built URL, folded into the existing LinkedIn flow
-                for location in _location_alternatives(location_filter):
-                    for seniority in seniorities or [""]:
-                        li_url = _build_linkedin_url(job_title, seniority, location)
-                        linkedin_url_to_users.setdefault(li_url, []).append((user, s))
+                # 1) LinkedIn is optional and disabled by default. Keep the
+                # connector and URL builder for a future re-enable.
+                if linkedin_enabled:
+                    for location in _location_alternatives(location_filter):
+                        for seniority in seniorities or [""]:
+                            li_url = _build_linkedin_url(job_title, seniority, location)
+                            linkedin_url_to_users.setdefault(li_url, []).append((user, s))
 
                 # 2) Every aggregator board — folded into the existing aggregator flow
                 for agg_source in _MULTI_BOARD_AGGREGATOR_SOURCES:

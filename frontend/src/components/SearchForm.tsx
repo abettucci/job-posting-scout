@@ -22,16 +22,10 @@ const SENIORITY_OPTIONS: { id: Seniority; label: string }[] = [
 
 const SOURCES: { id: SearchSource; label: string; placeholder: string; help: string }[] = [
   {
-    id: "linkedin",
-    label: "LinkedIn (specific URL)",
-    placeholder: "https://www.linkedin.com/jobs/search/?keywords=...",
-    help: "Paste the URL from a LinkedIn Jobs search with all your filters set. Use this when you want to control LinkedIn's own filters by hand (e.g. f_TPR, boolean keywords).",
-  },
-  {
     id: "multi_board",
     label: "Multi-board (global sources)",
     placeholder: "",
-    help: "One profile-shaped search, fanned out across LinkedIn, global remote boards, Wellfound, SimplyHired, FreeHire and Y Combinator.",
+    help: "One profile-shaped search, fanned out across global remote boards, Wellfound, SimplyHired, FreeHire and Y Combinator.",
   },
   {
     id: "greenhouse",
@@ -158,7 +152,7 @@ const SOURCES: { id: SearchSource; label: string; placeholder: string; help: str
 const AGGREGATOR_SOURCES: SearchSource[] = ["remoteok", "workingnomads", "remotive", "arbeitnow", "compujobs", "onlinejobs", "yc", "freehire", "hashtagweb3", "wellfound", "simplyhired", "justjoin", "dixcover"];
 
 export default function SearchForm({ onCreated, onCancel }: Props) {
-  const [source, setSource] = useState<SearchSource>("linkedin");
+  const [source, setSource] = useState<SearchSource>("multi_board");
   const [url, setUrl] = useState("");
   const [slug, setSlug] = useState("");
   const [label, setLabel] = useState("");
@@ -346,7 +340,7 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
           </div>
           <p className="text-xs text-slate-500 mt-2">Company size is an estimate from the posting or LinkedIn. Jobs with no reliable size signal remain eligible.</p>
         </fieldset>
-        <p className="text-xs text-slate-500 mt-3">These filters run after a job is fetched and before AI scoring or Telegram notification. Seniority is applied natively on LinkedIn when available and then checked again from the title for every source.</p>
+        <p className="text-xs text-slate-500 mt-3">These filters run after a job is fetched and before AI scoring or Telegram notification. Seniority is checked from the job title and description for each source.</p>
       </details>
 
       {/* Label */}
@@ -396,7 +390,7 @@ export default function SearchForm({ onCreated, onCancel }: Props) {
           />
           {isMultiBoard && (
             <p className="text-xs text-slate-500 mt-1">
-              Separate alternatives with commas (OR). LinkedIn runs one search per location; other boards match any listed location.
+              Separate alternatives with commas (OR). Each available board matches any listed location.
             </p>
           )}
         </div>

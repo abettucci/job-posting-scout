@@ -30,6 +30,7 @@ class Config:
     jwt_secret: str
     linkedin_email: str
     linkedin_password: str
+    linkedin_source_enabled: bool
     region: str
     environment: str
     frontend_url: str
@@ -66,6 +67,7 @@ def get_config() -> Config:
         jwt_secret=os.environ.get("JWT_SECRET", "change-me"),
         linkedin_email=os.environ.get("LINKEDIN_EMAIL", ""),
         linkedin_password=os.environ.get("LINKEDIN_PASSWORD", ""),
+        linkedin_source_enabled=os.environ.get("ENABLE_LINKEDIN_SOURCE", "false").lower() == "true",
         region=region,
         environment=os.environ.get("ENVIRONMENT", "prod"),
         frontend_url=os.environ.get("FRONTEND_URL", "http://localhost:3000"),

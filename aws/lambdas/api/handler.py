@@ -62,7 +62,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.make_router(_db, _cfg, get_current_user))
-app.include_router(searches.make_router(_db, get_current_user))
+app.include_router(searches.make_router(_db, get_current_user, _cfg.linkedin_source_enabled))
 app.include_router(profile.make_router(_db, get_current_user))
 app.include_router(telegram_link.make_router(_db, get_current_user))
 app.include_router(jobs.make_router(_db, _cfg, get_current_user))
@@ -70,7 +70,8 @@ app.include_router(interviews.make_router(_db, _cfg, get_current_user))
 app.include_router(resume.make_router(_db, _cfg, get_current_user))
 app.include_router(job_assistant.make_router(_db, _cfg, get_current_user))
 app.include_router(scrape_runs.make_router(_db, get_current_user))
-app.include_router(linkedin_session.make_router(_db, _cfg, get_current_user))
+if _cfg.linkedin_source_enabled:
+    app.include_router(linkedin_session.make_router(_db, _cfg, get_current_user))
 
 
 @app.get("/health")

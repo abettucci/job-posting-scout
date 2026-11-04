@@ -80,7 +80,7 @@ function effectiveSeniority(job: Job): SeniorityLevel {
 }
 
 function describeSearch(s: Search): string {
-  if (s.source === "linkedin") return "LinkedIn (specific URL)";
+  if (s.source === "linkedin") return "LinkedIn (paused temporarily)";
   if (s.source === "multi_board") {
     const levels = s.seniorities?.length ? s.seniorities.join(", ") : s.seniority;
     return `Multi-board: "${s.job_title}"${levels ? ` (${levels})` : ""}`;
@@ -176,7 +176,8 @@ export default function JobsPage() {
     return new Date(latest);
   }, [jobs]);
 
-  const activeSearches = useMemo(() => searches.filter((s) => s.active), [searches]);
+  const activeSearches = useMemo(() => searches.filter((s) => s.active && s.source !== "linkedin"), [searches]);
+  const pausedLinkedInSearches = useMemo(() => searches.filter((s) => s.source === "linkedin"), [searches]);
 
   const handleRescore = async () => {
     setRescoring(true);
@@ -304,6 +305,11 @@ export default function JobsPage() {
                 ))}
               </ul>
             </details>
+          )}
+          {pausedLinkedInSearches.length > 0 && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              {pausedLinkedInSearches.length} saved LinkedIn search{pausedLinkedInSearches.length === 1 ? " is" : "es are"} preserved but temporarily paused.
+            </p>
           )}
         </div>
 

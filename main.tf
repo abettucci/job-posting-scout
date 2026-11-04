@@ -18,6 +18,11 @@ variable "project_name" { default = "linkedin-job-scout" }
 variable "environment" { default = "prod" }
 variable "image_tag" { default = "latest" }
 variable "frontend_url" {}
+variable "linkedin_source_enabled" {
+  description = "Temporarily enable the LinkedIn scraper and session UI. Keep false to use ATS and aggregator sources only."
+  type        = bool
+  default     = false
+}
 # Webhook validation token — needed as env var on every bot request, low-risk as env var
 variable "telegram_webhook_secret" { sensitive = true }
 
@@ -411,6 +416,7 @@ resource "aws_lambda_function" "api" {
       OMNIROUTE_API_KEY          = var.omniroute_api_key
       OMNIROUTE_MODEL            = var.omniroute_model
       SCRAPER_FUNCTION_NAME      = aws_lambda_function.scraper.function_name
+      ENABLE_LINKEDIN_SOURCE     = tostring(var.linkedin_source_enabled)
       USERS_TABLE                = aws_dynamodb_table.users.name
       SEARCHES_TABLE             = aws_dynamodb_table.searches.name
       PROFILES_TABLE             = aws_dynamodb_table.profiles.name
@@ -425,7 +431,7 @@ resource "aws_lambda_function" "api" {
 }
 
 resource "aws_lambda_function" "scraper" {
-  description   = "Scheduled job scraper — LinkedIn (Playwright) + ATS/aggregator providers, scores new postings with the AI provider cascade and notifies via Telegram"
+  description   = "Scheduled job scraper — public ATS/aggregator providers with optional LinkedIn support, scores new postings with the AI provider cascade and notifies via Telegram"
   function_name = "${local.prefix}-scraper"
   role          = aws_iam_role.lambda_exec.arn
   package_type  = "Image"
@@ -448,8 +454,7 @@ resource "aws_lambda_function" "scraper" {
       OMNIROUTE_BASE_URL         = var.omniroute_base_url
       OMNIROUTE_API_KEY          = var.omniroute_api_key
       OMNIROUTE_MODEL            = var.omniroute_model
-      LINKEDIN_EMAIL             = var.linkedin_email
-      LINKEDIN_PASSWORD          = var.linkedin_password
+      ENABLE_LINKEDIN_SOURCE     = tostring(var.linkedin_source_enabled)
       USERS_TABLE                = aws_dynamodb_table.users.name
       SEARCHES_TABLE             = aws_dynamodb_table.searches.name
       PROFILES_TABLE             = aws_dynamodb_table.profiles.name

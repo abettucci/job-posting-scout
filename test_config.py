@@ -43,6 +43,13 @@ class ConfigEnvironmentTests(unittest.TestCase):
         self.assertEqual(cfg.openrouter_api_key, "")
         self.assertEqual(cfg.anthropic_api_key, "")
         self.assertEqual(cfg.omniroute_model, "auto")
+        self.assertFalse(cfg.linkedin_source_enabled)
+
+    def test_linkedin_source_requires_explicit_opt_in(self):
+        with patch.dict("os.environ", {"ENABLE_LINKEDIN_SOURCE": "true"}, clear=True):
+            cfg = config.get_config()
+
+        self.assertTrue(cfg.linkedin_source_enabled)
 
 
 if __name__ == "__main__":

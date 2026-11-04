@@ -17,7 +17,7 @@ _AGGREGATOR_SOURCES = {
     "hashtagweb3", "wellfound", "simplyhired", "justjoin", "dixcover",
 }
 # Multi-board: one profile-shaped search (job_title + seniority) fanned out
-# across LinkedIn (auto-built URL) + every aggregator above. See handler.py.
+# across the configured public aggregators (and optionally LinkedIn). See handler.py.
 _MULTI_BOARD_SOURCE = "multi_board"
 # Kept in sync by hand with shared/seniority.py's SENIORITY_LEVELS (same
 # small-constant-duplication pattern already used for the ATS url maps below).
@@ -27,7 +27,7 @@ _SENIORITY_LEVELS = ["internship", "entry", "associate", "mid", "senior", "staff
 class SearchCreate(BaseModel):
     url: Optional[str] = None          # LinkedIn URL; optional for ATS/aggregator/multi_board sources
     label: str
-    source: str = "linkedin"           # "linkedin" | ATS name | aggregator name | "multi_board"
+    source: str = "multi_board"         # ATS name | aggregator name | "multi_board"; LinkedIn is legacy/opt-in
     ats_slug: str = ""                 # company slug for ATS sources (e.g. "stripe")
     keywords: str = ""                 # comma-separated keyword filter (required for aggregators)
     location_filter: str = ""         # location filter string
@@ -91,7 +91,7 @@ class SearchPatch(BaseModel):
     active: bool
 
 
-def make_router(db: Any, get_current_user: Callable) -> APIRouter:
+def make_router(db: Any, get_current_user: Callable, linkedin_enabled: bool = False) -> APIRouter:
     router = APIRouter(prefix="/searches", tags=["searches"])
 
     @router.get("")
@@ -103,6 +103,8 @@ def make_router(db: Any, get_current_user: Callable) -> APIRouter:
         source = body.source
 
         if source == "linkedin":
+            if not linkedin_enabled:
+                raise HTTPException(410, "LinkedIn searches are temporarily disabled")
             if not body.url:
                 raise HTTPException(400, "url is required for LinkedIn searches")
             effective_url = str(body.url)
@@ -196,6 +198,11 @@ def make_router(db: Any, get_current_user: Callable) -> APIRouter:
 
     @router.patch("/{search_id}")
     def patch_search(search_id: str, body: SearchPatch, user=Depends(get_current_user)):
+        if body.active and not linkedin_enabled:
+            saved_searches = db.get_user_searches(user["user_id"])
+            target = next((s for s in saved_searches if s.get("search_id") == search_id), None)
+            if target and target.get("source") == "linkedin":
+                raise HTTPException(410, "LinkedIn searches are temporarily disabled")
         ok = db.update_search(user["user_id"], search_id, {"active": body.active})
         if not ok:
             raise HTTPException(500, "Error updating search")

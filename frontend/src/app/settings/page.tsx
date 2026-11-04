@@ -7,7 +7,6 @@ import { api, Profile, type ResumeSkills } from "@/lib/api";
 import Nav from "@/components/Nav";
 import TelegramLink from "@/components/TelegramLink";
 import ProfileEditor from "@/components/ProfileEditor";
-import LinkedInSession from "@/components/LinkedInSession";
 
 const EMPTY_PROFILE: Profile = {
   must_have: [],
@@ -59,8 +58,6 @@ export default function SettingsPage() {
         <h1 className="font-semibold text-slate-900 dark:text-white text-lg">Settings</h1>
 
         <TelegramLink />
-        <LinkedInSession />
-
         {fetching ? (
           <div className="card">
             <p className="text-slate-600 dark:text-slate-400 text-sm">Loading profile…</p>
