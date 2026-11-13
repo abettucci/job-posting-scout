@@ -1,11 +1,48 @@
 """Pure validation helpers that keep AI resume rewrites from losing content."""
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional
+import json
+import re
+from typing import Any, List, Mapping, Optional
 
 
 _IDENTITY_FIELDS = ("name", "email", "phone", "location", "linkedin", "github", "website")
 _LIST_SECTIONS = ("experience", "education", "projects", "certifications")
+
+# Technology names eligible for the optional hidden ATS keyword line.
+_TECH_TERMS = (
+    "Python", "Java", "JavaScript", "TypeScript", "Go", "Golang", "Rust", "C#", "C++", "Ruby", "PHP", "Scala",
+    "Kotlin", "Swift", "SQL", "Bash", "Node.js", "React", "Next.js", "Angular", "Vue", "Svelte", "Django", "Flask",
+    "FastAPI", "Spring", "Express", "NestJS", ".NET", "Terraform", "Ansible", "Docker", "Kubernetes", "Helm",
+    "AWS", "Azure", "GCP", "Lambda", "EC2", "S3", "DynamoDB", "CloudFormation", "CDK", "API Gateway",
+    "PostgreSQL", "MySQL", "MongoDB", "Redis", "Kafka", "RabbitMQ", "Elasticsearch", "Snowflake", "Spark",
+    "Airflow", "dbt", "GraphQL", "REST", "gRPC", "Microservices", "CI/CD", "GitHub Actions", "Jenkins", "GitLab",
+    "Linux", "Git", "Prometheus", "Grafana", "Datadog", "OpenTelemetry", "Celery", "Pandas", "PyTorch",
+    "TensorFlow", "LangChain", "OpenAI", "Machine Learning", "Terragrunt", "Serverless", "Agile", "Scrum",
+)
+_MAX_HIDDEN_KEYWORDS = 25
+
+
+def _term_pattern(term: str) -> "re.Pattern[str]":
+    return re.compile(r"(?<![\w+#.])" + re.escape(term) + r"(?![\w+#])", re.IGNORECASE)
+
+
+def select_hidden_keywords(original: Mapping[str, Any], tailored: Mapping[str, Any], job_description: str) -> List[str]:
+    """Technologies named in the posting that the original resume supports but the visible CV omits.
+
+    Only terms already present in the candidate's original resume are eligible, so the hidden line never
+    adds a skill the candidate did not list.
+    """
+    original_text = json.dumps(original, ensure_ascii=False)
+    visible_text = json.dumps({k: v for k, v in tailored.items() if k != "hidden_keywords"}, ensure_ascii=False)
+    selected: List[str] = []
+    for term in _TECH_TERMS:
+        if len(selected) >= _MAX_HIDDEN_KEYWORDS:
+            break
+        pattern = _term_pattern(term)
+        if pattern.search(job_description) and pattern.search(original_text) and not pattern.search(visible_text):
+            selected.append(term)
+    return selected
 
 
 def _has_content(value: Any) -> bool:
