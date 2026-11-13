@@ -249,6 +249,7 @@ export default function ResumePage() {
   const [tailoring, setTailoring] = useState(false);
   const [tailorError, setTailorError] = useState("");
   const [tailoredActive, setTailoredActive] = useState(false);
+  const [tailorHiddenKeywords, setTailorHiddenKeywords] = useState(false);
   const [originalResume, setOriginalResume] = useState<ResumeData | null>(null);
   const [applicationAnswers, setApplicationAnswers] = useState<{ why_this_role: string; team_contribution: string } | null>(null);
   const [applicationAnswering, setApplicationAnswering] = useState(false);
@@ -404,6 +405,7 @@ export default function ResumePage() {
         job_description: tailorJobId ? undefined : tailorJobDesc.trim(),
         company: tailorCompany.trim() || undefined,
         role: tailorRole.trim() || undefined,
+        hidden_keywords: tailorHiddenKeywords || undefined,
       });
       setOriginalResume(resume);
       setResume(tailored);
@@ -1365,6 +1367,22 @@ export default function ResumePage() {
               <p className="text-xs text-slate-500 dark:text-slate-400">Optional, but it keeps this material grouped under the right company in Career history.</p>
             </div>
           )}
+
+          <label className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={tailorHiddenKeywords}
+              onChange={(e) => setTailorHiddenKeywords(e.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              Add hidden ATS keywords
+              <span className="block text-xs text-slate-500 dark:text-slate-400">
+                Adds the technologies from this posting that already appear in your resume as invisible white text.
+                Readers won't see them; ATS parsers will. Review the PDF before sending it.
+              </span>
+            </span>
+          </label>
 
           {tailorError && (
             <div className="p-3 bg-red-900/40 border border-red-700 rounded text-red-300 text-sm">{tailorError}</div>

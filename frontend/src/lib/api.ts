@@ -203,7 +203,7 @@ export const api = {
     req<{ why_this_role: string; team_contribution: string }>("/resume/application-answers", {
       method: "POST", body: JSON.stringify(body),
     }),
-  tailorResume: (body: { job_description?: string; job_id?: string; company?: string; role?: string }) =>
+  tailorResume: (body: { job_description?: string; job_id?: string; company?: string; role?: string; hidden_keywords?: boolean }) =>
     req<ResumeData>("/resume/tailor", { method: "POST", body: JSON.stringify(body) }),
   translateResume: (language: string) =>
     req<ResumeData>("/resume/translate", { method: "POST", body: JSON.stringify({ language }) }),
@@ -516,6 +516,7 @@ export interface ResumeData {
   experience: ResumeExperience[];
   education: ResumeEducation[];
   skills: ResumeSkills;
+  hidden_keywords?: string[];
   projects: ResumeProject[];
   certifications: string[];
 }

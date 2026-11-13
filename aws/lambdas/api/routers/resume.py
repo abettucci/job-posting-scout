@@ -18,7 +18,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ._resume_integrity import incomplete_tailored_payload_reason, resume_has_renderable_content
+from ._resume_integrity import (
+    incomplete_tailored_payload_reason,
+    resume_has_renderable_content,
+    select_hidden_keywords,
+)
 
 logger = logging.getLogger(__name__)
 _CLAUDE_MODEL = "claude-haiku-5-5"
@@ -75,6 +79,7 @@ class ResumeData(BaseModel):
     linkedin: str = ""
     github: str = ""
     website: str = ""
+    hidden_keywords: List[str] = []  # rendered as white, invisible text for ATS parsers only
     summary: str = ""
     experience: List[ExperienceItem] = []
     education: List[EducationItem] = []
@@ -107,6 +112,7 @@ class TailorRequest(BaseModel):
     job_id: Optional[str] = None
     company: Optional[str] = Field(default=None, max_length=200)
     role: Optional[str] = Field(default=None, max_length=200)
+    hidden_keywords: bool = False  # add an invisible ATS keyword line (opt-in)
 
 class TranslateRequest(BaseModel):
     language: str = Field(..., min_length=2, max_length=40)
@@ -517,6 +523,12 @@ def _latex_esc(s: str) -> str:
         s = s.replace(ch, rep)
     return s
 
+def _hidden_keywords_block(r: ResumeData) -> str:
+    """White, zero-layout text so ATS parsers index the keywords while readers see nothing."""
+    if not r.hidden_keywords:
+        return ""
+    return f"\n#place(bottom + left)[#text(fill: white)[{_t(', '.join(r.hidden_keywords))}]]\n"
+
 def _typst_modern(r: ResumeData, scale: float = 1.0) -> str:
     contact = " • ".join(_t(p) for p in [r.email, r.phone, r.location, r.linkedin, r.github, r.website] if p)
 
@@ -586,6 +598,7 @@ def _typst_modern(r: ResumeData, scale: float = 1.0) -> str:
         + section("Skills", "\n".join(skill_lines))
         + section("Projects", "".join(proj_blocks))
         + (section("Certifications", "\n".join(f"- {_t(c)}" for c in r.certifications)) if r.certifications else "")
+        + _hidden_keywords_block(r)
     )
 
 def _typst_silver(r: ResumeData, scale: float = 1.0) -> str:
@@ -649,6 +662,7 @@ def _typst_silver(r: ResumeData, scale: float = 1.0) -> str:
         + section("SKILLS", "\n".join(skill_lines))
         + section("PROJECTS", "\n".join(proj_blocks))
         + (section("CERTIFICATIONS", "\n".join(f"- {_t(c)}" for c in r.certifications)) if r.certifications else "")
+        + _hidden_keywords_block(r)
     )
 
 def _latex_us(r: ResumeData) -> str:
@@ -1664,6 +1678,8 @@ def make_router(db: Any, cfg: Any, get_current_user: Callable) -> APIRouter:
 
         tailored = _tailor_with_claude(_tailor_anthropic, resume, job_description)
         tailored = _review_tailored_resume(_tailor_anthropic, resume, tailored, job_description)
+        if body.hidden_keywords:
+            tailored.hidden_keywords = select_hidden_keywords(resume.model_dump(), tailored.model_dump(), job_description)
         company, role = _history_context(db, user["user_id"], body.job_id, body.company or "", body.role or "")
         _save_history_artifact(
             db, user["user_id"], "tailored_cv", company=company, role=role,
