@@ -50,12 +50,34 @@ class TelegramClient:
         data: Dict[str, Any] = {
             "chat_id": chat_id,
             "text": text,
-            "parse_mode": parse_mode,
             "disable_notification": disable_notification,
         }
+        if parse_mode:  # pass None for user-supplied text (titles may contain Markdown characters)
+            data["parse_mode"] = parse_mode
         if reply_markup:
             data["reply_markup"] = reply_markup
         return self._call("sendMessage", data)
+
+    def send_document(self, chat_id: int, filename: str, content: bytes, mime_type: str = "application/pdf",
+                      caption: str = "") -> Optional[Dict]:
+        """Upload a file (e.g. a generated PDF) to the chat. Uses multipart, so it bypasses _call."""
+        url = _BASE.format(token=self.token, method="sendDocument")
+        try:
+            resp = self._session.post(
+                url,
+                data={"chat_id": chat_id, "caption": caption},
+                files={"document": (filename, content, mime_type)},
+                timeout=60,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            if not result.get("ok"):
+                logger.error(f"Telegram error [sendDocument]: {result.get('description')}")
+                return None
+            return result.get("result")
+        except requests.RequestException as e:
+            logger.error(f"Telegram sendDocument error: {e}")
+            return None
 
     def set_webhook(self, url: str, secret_token: str) -> Optional[Dict]:
         return self._call(

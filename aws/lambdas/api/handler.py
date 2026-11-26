@@ -112,6 +112,17 @@ def run_scraper(mode: str = "scrape", current_user=Depends(get_current_user)):
 
 try:
     from mangum import Mangum
-    handler = Mangum(app, lifespan="off")
+    _http_handler = Mangum(app, lifespan="off")
 except ImportError:
-    handler = None
+    _http_handler = None
+
+
+def handler(event, context):
+    # Direct invocations from the Telegram bot carry a telegram_action key; everything
+    # else is an API Gateway HTTP event handled by FastAPI through Mangum.
+    if isinstance(event, dict) and event.get("telegram_action"):
+        from telegram_actions import run_action
+        return run_action(event, _db, _cfg)
+    if _http_handler is None:
+        raise RuntimeError("mangum is not installed")
+    return _http_handler(event, context)
