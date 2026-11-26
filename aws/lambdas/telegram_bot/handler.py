@@ -5,6 +5,11 @@ Commands:
   /status        — show linked account info
   /pause         — deactivate all searches for this user
   /resume        — reactivate all searches for this user
+  /jobs [n]      — list the top unapplied, undismissed jobs
+  /dismiss <id>  — dismiss a job
+  /apply <id>    — mark a job as applied
+  /tailor <id>   — generate a tailored CV PDF (async, via the API Lambda)
+  /cover <id>    — generate a cover letter PDF (async, via the API Lambda)
 """
 
 from __future__ import annotations
@@ -22,6 +27,8 @@ _SHARED_LOCAL = str(Path(__file__).resolve().parent.parent / "shared")
 for _p in [_SHARED_LAMBDA, _SHARED_LOCAL]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+import boto3
 
 from config import get_config
 from db import DynamoDBClient
@@ -76,8 +83,21 @@ def lambda_handler(event, context):
             _handle_toggle(tg, db, chat_id, active=False)
         elif command == "/resume":
             _handle_toggle(tg, db, chat_id, active=True)
+        elif command == "/jobs":
+            _handle_jobs(tg, db, chat_id, args)
+        elif command == "/dismiss":
+            _handle_job_flag(tg, db, chat_id, args, field="dismissed")
+        elif command == "/apply":
+            _handle_job_flag(tg, db, chat_id, args, field="applied")
+        elif command in ("/tailor", "/cover"):
+            _handle_document(tg, db, chat_id, args, action="tailor" if command == "/tailor" else "cover")
         else:
-            tg.send_message(chat_id, "Commands: /start <code>, /status, /pause, /resume")
+            tg.send_message(
+                chat_id,
+                "Commands: /start <code>, /status, /pause, /resume, /jobs [n], "
+                "/dismiss <job_id>, /apply <job_id>, /tailor <job_id>, /cover <job_id>",
+                parse_mode=None,
+            )
     except Exception as e:
         logger.error(f"Handler error: {e}")
         tg.send_message(chat_id, "An error occurred. Please try again.")
@@ -107,6 +127,74 @@ def _handle_start(tg: TelegramClient, db: DynamoDBClient, chat_id: int, args: st
         "Account linked! You'll receive job notifications here.\n\n"
         "Commands: /pause to mute, /resume to re-enable, /status to check.",
     )
+
+
+def _user_for_chat(db: DynamoDBClient, chat_id: int):
+    users = db.get_all_linked_users()
+    return next((u for u in users if str(u.get("telegram_chat_id")) == str(chat_id)), None)
+
+
+def _handle_jobs(tg: TelegramClient, db: DynamoDBClient, chat_id: int, args: str):
+    user = _user_for_chat(db, chat_id)
+    if not user:
+        tg.send_message(chat_id, "No account linked. Go to Settings in the app to link.", parse_mode=None)
+        return
+    n = int(args.strip()) if args.strip().isdigit() else 5
+    n = max(1, min(n, 10))
+    items, _ = db.get_user_jobs(user_id=user["user_id"], min_score=0, limit=n, applied=False, dismissed=False)
+    if not items:
+        tg.send_message(chat_id, "No hay jobs pendientes.", parse_mode=None)
+        return
+    lines = [
+        f"{i}. [{item.get('score', '?')}] {item.get('title', '')} — {item.get('company', '')}\n   id: {item.get('job_id', '')}"
+        for i, item in enumerate(items, start=1)
+    ]
+    tg.send_message(chat_id, "\n".join(lines), parse_mode=None)
+
+
+def _handle_job_flag(tg: TelegramClient, db: DynamoDBClient, chat_id: int, args: str, field: str):
+    user = _user_for_chat(db, chat_id)
+    if not user:
+        tg.send_message(chat_id, "No account linked. Go to Settings in the app to link.", parse_mode=None)
+        return
+    job_id = args.strip()
+    if not job_id:
+        tg.send_message(chat_id, f"Usage: /{'dismiss' if field == 'dismissed' else 'apply'} <job_id>", parse_mode=None)
+        return
+    if field == "dismissed":
+        ok = db.set_job_dismissed(user["user_id"], job_id, True)
+        done = "Job descartado."
+    else:
+        ok = db.set_job_applied(user["user_id"], job_id, True)
+        done = "Job marcado como aplicado."
+    tg.send_message(chat_id, done if ok else "Job no encontrado.", parse_mode=None)
+
+
+def _handle_document(tg: TelegramClient, db: DynamoDBClient, chat_id: int, args: str, action: str):
+    user = _user_for_chat(db, chat_id)
+    if not user:
+        tg.send_message(chat_id, "No account linked. Go to Settings in the app to link.", parse_mode=None)
+        return
+    job_id = args.strip()
+    if not job_id:
+        tg.send_message(chat_id, f"Usage: /{action} <job_id>", parse_mode=None)
+        return
+    if not db.get_user_job(user["user_id"], job_id):
+        tg.send_message(chat_id, "Job no encontrado.", parse_mode=None)
+        return
+    # The API Lambda has the AI router, typst and a 30s budget; the webhook has 15s.
+    # Invoke it asynchronously and let it send the PDF to this chat when ready.
+    boto3.client("lambda", region_name=os.environ.get("AWS_REGION")).invoke(
+        FunctionName=os.environ["API_FUNCTION_NAME"],
+        InvocationType="Event",
+        Payload=json.dumps({
+            "telegram_action": action,
+            "user_id": user["user_id"],
+            "job_id": job_id,
+            "chat_id": chat_id,
+        }).encode(),
+    )
+    tg.send_message(chat_id, "Generando el documento. Te lo envío acá cuando esté listo.", parse_mode=None)
 
 
 def _handle_status(tg: TelegramClient, db: DynamoDBClient, chat_id: int):

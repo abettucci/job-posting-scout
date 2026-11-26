@@ -71,7 +71,7 @@ variable "gemini_free_tier_confirmed" {
 variable "ai_paid_daily_budget_usd" {
   description = "Maximum aggregate daily paid-model spend reserved by the app, in USD (UTC day)."
   type        = number
-  default     = 1.00
+  default     = 0.00  # free providers only; set above 0 to allow paid fallbacks
   validation {
     condition     = var.ai_paid_daily_budget_usd >= 0 && var.ai_paid_daily_budget_usd <= 100
     error_message = "ai_paid_daily_budget_usd must be between 0 and 100 USD."
@@ -368,6 +368,12 @@ resource "aws_iam_role_policy" "app_policy" {
         ]
       },
       {
+        # The Telegram bot starts tailoring/cover-letter jobs on the API Lambda asynchronously.
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = [aws_lambda_function.api.arn]
+      },
+      {
         # Only the mutable LinkedIn session cookie remains in Secrets Manager.
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue", "secretsmanager:CreateSecret"]
@@ -416,6 +422,7 @@ resource "aws_lambda_function" "api" {
       OMNIROUTE_API_KEY          = var.omniroute_api_key
       OMNIROUTE_MODEL            = var.omniroute_model
       SCRAPER_FUNCTION_NAME      = aws_lambda_function.scraper.function_name
+      TELEGRAM_BOT_TOKEN         = var.telegram_bot_token
       ENABLE_LINKEDIN_SOURCE     = tostring(var.linkedin_source_enabled)
       USERS_TABLE                = aws_dynamodb_table.users.name
       SEARCHES_TABLE             = aws_dynamodb_table.searches.name
@@ -486,6 +493,7 @@ resource "aws_lambda_function" "telegram_bot" {
       JOBS_TABLE              = aws_dynamodb_table.jobs.name
       TELEGRAM_CODES_TABLE    = aws_dynamodb_table.telegram_codes.name
       TELEGRAM_WEBHOOK_SECRET = var.telegram_webhook_secret
+      API_FUNCTION_NAME       = aws_lambda_function.api.function_name
     }
   }
 }
