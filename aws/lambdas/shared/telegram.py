@@ -58,6 +58,12 @@ class TelegramClient:
             data["reply_markup"] = reply_markup
         return self._call("sendMessage", data)
 
+    def answer_callback_query(self, callback_query_id: str, text: str = "") -> Optional[Dict]:
+        data: Dict[str, Any] = {"callback_query_id": callback_query_id}
+        if text:
+            data["text"] = text[:200]
+        return self._call("answerCallbackQuery", data)
+
     def send_document(self, chat_id: int, filename: str, content: bytes, mime_type: str = "application/pdf",
                       caption: str = "") -> Optional[Dict]:
         """Upload a file (e.g. a generated PDF) to the chat. Uses multipart, so it bypasses _call."""
