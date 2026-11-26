@@ -14,6 +14,8 @@ Commands:
 
 from __future__ import annotations
 
+import hashlib
+import html
 import json
 import logging
 import os
@@ -21,6 +23,7 @@ import sys
 import random
 import string
 from pathlib import Path
+from typing import Any, Dict
 
 _SHARED_LAMBDA = str(Path(__file__).resolve().parent / "shared")
 _SHARED_LOCAL = str(Path(__file__).resolve().parent.parent / "shared")
@@ -62,6 +65,12 @@ def lambda_handler(event, context):
     tg = TelegramClient(cfg.telegram_bot_token)
 
     body = json.loads(event.get("body") or "{}")
+    if body.get("callback_query"):
+        try:
+            _handle_callback(tg, db, body["callback_query"])
+        except Exception as e:
+            logger.error(f"Callback error: {type(e).__name__}")
+        return {"statusCode": 200, "body": "ok"}
     message = body.get("message") or {}
     chat = message.get("chat") or {}
     chat_id = chat.get("id")
@@ -134,6 +143,38 @@ def _user_for_chat(db: DynamoDBClient, chat_id: int):
     return next((u for u in users if str(u.get("telegram_chat_id")) == str(chat_id)), None)
 
 
+_CALLBACK_ACTIONS = {"apply", "dismiss", "tailor", "cover"}
+
+
+def _short_id(job_id: str) -> str:
+    """Telegram callback_data is capped at 64 bytes, and job ids can be longer."""
+    return hashlib.sha1(job_id.encode("utf-8")).hexdigest()[:12]
+
+
+def _esc(value: Any) -> str:
+    return html.escape(str(value or ""), quote=False)
+
+
+def _job_message(index: int, job: Dict) -> str:
+    title = _esc(job.get("title") or "Sin título")
+    url = str(job.get("url") or "")
+    head = f'<a href="{html.escape(url, quote=True)}">{title}</a>' if url.startswith("https://") else f"<b>{title}</b>"
+    meta = " · ".join(
+        _esc(part) for part in [job.get("company"), job.get("location"), f"score {job.get('score', '?')}"] if part
+    )
+    return f"<b>{index}.</b> {head}\n{meta}"
+
+
+def _job_keyboard(job_id: str) -> Dict:
+    s = _short_id(job_id)
+    return {"inline_keyboard": [
+        [{"text": "✅ Aplicar", "callback_data": f"apply:{s}"},
+         {"text": "🗑 Descartar", "callback_data": f"dismiss:{s}"}],
+        [{"text": "📄 CV", "callback_data": f"tailor:{s}"},
+         {"text": "✉️ Cover", "callback_data": f"cover:{s}"}],
+    ]}
+
+
 def _handle_jobs(tg: TelegramClient, db: DynamoDBClient, chat_id: int, args: str):
     user = _user_for_chat(db, chat_id)
     if not user:
@@ -141,15 +182,49 @@ def _handle_jobs(tg: TelegramClient, db: DynamoDBClient, chat_id: int, args: str
         return
     n = int(args.strip()) if args.strip().isdigit() else 5
     n = max(1, min(n, 10))
-    items, _ = db.get_user_jobs(user_id=user["user_id"], min_score=0, limit=n, applied=False, dismissed=False)
+    threshold = int(user.get("score_threshold") or 50)
+    # Score 0 marks postings that were never evaluated, so they are not shown as matches.
+    items, _ = db.get_user_jobs(
+        user_id=user["user_id"], min_score=max(1, threshold), limit=n, applied=False, dismissed=False,
+    )
     if not items:
-        tg.send_message(chat_id, "No hay jobs pendientes.", parse_mode=None)
+        tg.send_message(chat_id, f"No hay jobs pendientes con score ≥ {threshold}.", parse_mode=None)
         return
-    lines = [
-        f"{i}. [{item.get('score', '?')}] {item.get('title', '')} — {item.get('company', '')}\n   id: {item.get('job_id', '')}"
-        for i, item in enumerate(items, start=1)
-    ]
-    tg.send_message(chat_id, "\n".join(lines), parse_mode=None)
+    tg.send_message(chat_id, f"<b>{len(items)} jobs pendientes</b> (score ≥ {threshold})", parse_mode="HTML")
+    for index, job in enumerate(items, start=1):
+        tg.send_message(
+            chat_id, _job_message(index, job), parse_mode="HTML",
+            reply_markup=_job_keyboard(job["job_id"]),
+        )
+
+
+def _handle_callback(tg: TelegramClient, db: DynamoDBClient, callback: Dict):
+    callback_id = callback.get("id", "")
+    chat_id = ((callback.get("message") or {}).get("chat") or {}).get("id")
+    action, _, short = str(callback.get("data") or "").partition(":")
+    if not callback_id or not chat_id or action not in _CALLBACK_ACTIONS or not short:
+        tg.answer_callback_query(callback_id, "Acción no válida")
+        return
+    user = _user_for_chat(db, chat_id)
+    if not user:
+        tg.answer_callback_query(callback_id, "Cuenta no vinculada")
+        return
+    # Look the job up among the user's recent postings, so a stale button still resolves.
+    candidates, _ = db.get_user_jobs(user_id=user["user_id"], min_score=0, limit=100)
+    job = next((j for j in candidates if _short_id(str(j.get("job_id", ""))) == short), None)
+    if not job:
+        tg.answer_callback_query(callback_id, "Job no encontrado")
+        return
+    job_id = job["job_id"]
+    if action == "apply":
+        ok = db.set_job_applied(user["user_id"], job_id, True)
+        tg.answer_callback_query(callback_id, "Marcado como aplicado" if ok else "Job no encontrado")
+    elif action == "dismiss":
+        ok = db.set_job_dismissed(user["user_id"], job_id, True)
+        tg.answer_callback_query(callback_id, "Descartado" if ok else "Job no encontrado")
+    else:
+        tg.answer_callback_query(callback_id, "Generando…")
+        _handle_document(tg, db, chat_id, job_id, action=action)
 
 
 def _handle_job_flag(tg: TelegramClient, db: DynamoDBClient, chat_id: int, args: str, field: str):
